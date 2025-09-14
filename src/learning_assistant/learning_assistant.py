@@ -4,10 +4,11 @@ import os
 from langchain.chat_models import init_chat_model
 
 from learning_assistant.tools import get_tools, get_tools_by_name
+from learning_assistant.tools.default.learning_tools import write_notes_to_file, generate_section_id
 from learning_assistant.tools.default.prompt_templates import AGENT_TOOLS_PROMPT
-from learning_assistant.prompts import triage_system_prompt, triage_user_prompt, content_system_prompt, default_background, default_triage_instructions, default_content_preferences, default_enhancement_preferences, default_organization_preferences
+from learning_assistant.prompts import triage_system_prompt, triage_user_prompt, content_system_prompt, default_background, default_triage_instructions, triage_instructions, default_content_preferences, default_enhancement_preferences, default_organization_preferences
 from learning_assistant.schemas import State, RouterSchema, StateInput
-from learning_assistant.utils import parse_content_input, format_content_markdown, format_final_notes, show_graph, smart_append
+from learning_assistant.utils import parse_content_input, format_current_data, format_content_markdown, format_final_notes, show_graph, append_paragraph
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
 from dotenv import load_dotenv
@@ -167,7 +168,8 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
     """
     # Parse the new incoming content
     audio_transcription, documentation, student_notes = parse_content_input(state["content_input"])
-    
+    current_paragraph = state["current_paragraph"]
+
     # Get the document_thread directly from content_input - this contains accumulated paragraph data
     document_thread = state["content_input"].get("document_thread", "")
     
@@ -175,27 +177,18 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
     final_notes = state.get("final_notes", {})
     full_document = format_final_notes(final_notes) if final_notes else ""
     
-    # Initialize current_paragraph if not present in state
-    # This represents the currently accumulating content for the active paragraph
-    if "current_paragraph" not in state or state["current_paragraph"] is None:
-        current_paragraph = {
-            "audio_transcription": "",
-            "slide_text": "",
-            "student_notes": ""
-        }
-    else:
-        current_paragraph = state["current_paragraph"]
-    
     system_prompt = triage_system_prompt.format(
         background=default_background,
         triage_instructions=default_triage_instructions
     )
 
+    current_data = format_current_data(current_paragraph)
+
     user_prompt = triage_user_prompt.format(
         audio_transcription=audio_transcription,
         slide_text=documentation,
         student_notes=student_notes,
-        current_paragraph=current_paragraph,
+        current_data=current_data,
         full_document=full_document
     )
 
@@ -212,52 +205,31 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
 
     if classification == "continue":
         print("➡️ Classification: CONTINUE - This text needs to be appended to the current paragraph data")
-        # Update the current_paragraph by intelligently appending only new content
-        # This preserves existing accumulated content and adds only new parts
-        current_paragraph["audio_transcription"] = smart_append(
-            current_paragraph["audio_transcription"], 
-            audio_transcription
+        # Use the function to update current_paragraph
+        updated_paragraph = append_paragraph(
+            current_paragraph,
+            audio_transcription=audio_transcription,
+            documentation=documentation,
+            student_notes=student_notes
         )
-        current_paragraph["slide_text"] = smart_append(
-            current_paragraph["slide_text"], 
-            documentation
-        )
-        current_paragraph["student_notes"] = smart_append(
-            current_paragraph["student_notes"], 
-            student_notes
-        )
+
         update = {
             "classification_decision": result.classification,
-            "current_paragraph": current_paragraph,
+            "current_paragraph": updated_paragraph,
         }
         goto = END
-    elif result.classification == "resume":
-        print("🔄 Classification: RESUME - We have to resume a past paragraph from the document thread")
-        goto = "content_agent"
-        # Handle case where final_notes might not have the paragraph_id
-        target_paragraph = final_notes.get(result.paragraph_id, "")
-        
-        # Use document_thread as paragraph data (this contains the accumulated content)
-        paragraph_data = document_thread if document_thread else format_content_markdown(current_paragraph, full_document)
-        
+    elif result.classification == "ignore":
+        print("🚫 Classification: IGNORE - We have to ignore the current data")
         update =  {
             "classification_decision": result.classification,
-            "messages": [{"role": "user",
-                            "content": f"Integrate the following paragraph data: {paragraph_data} in the paragraph: {target_paragraph} with id {result.paragraph_id}."
-                        }],
-            # Initialize current_paragraph with the new incoming content for next accumulation cycle
-            "current_paragraph": {
-                "audio_transcription": audio_transcription,
-                "slide_text": documentation,
-                "student_notes": student_notes
-            }
         }
+        goto = END
     elif result.classification == "new":
         print("⚡️ Classification: NEW - We have to create a new paragraph in the document thread")
         goto = "content_agent"
         
-        # Use document_thread as paragraph data (this contains the accumulated content)
-        paragraph_data = document_thread if document_thread else format_content_markdown(current_paragraph, full_document)
+        # Format the current paragraph data to markdown for the content agent
+        paragraph_data = format_content_markdown(current_paragraph, full_document)
         
         update = {
             "classification_decision": result.classification,
@@ -267,7 +239,7 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
             # Initialize current_paragraph with the new incoming content for next accumulation cycle
             "current_paragraph": {
                 "audio_transcription": audio_transcription,
-                "slide_text": documentation,
+                "documentation": documentation,
                 "student_notes": student_notes
             }
         }
@@ -289,5 +261,3 @@ overall_workflow = (
 
 learning_assistant = overall_workflow.compile()
 print("✓ Learning assistant workflow recompiled with updated triage router")
-
-

@@ -62,6 +62,27 @@ def smart_append(existing_text: str, new_text: str) -> str:
         # No overlap found, append with proper spacing
         separator = " " if not existing_text.endswith(" ") and not new_text.startswith(" ") else ""
         return existing_text + separator + new_text
+    
+def format_current_data(current_paragraph: dict) -> str:
+    """Format the current paragraph data into a readable string to input in the triage assistant.
+    
+    Args:
+        current_paragraph: Dictionary containing content fields:
+            - audio_transcription: The audio transcription text
+            - documentation: The documentation slide content
+            - student_notes: The student notes content
+    """
+    return f"""
+    ---------Current Audio Transcription Data---------
+    {current_paragraph["audio_transcription"]}
+
+    ---------Current Documentation---------
+    {current_paragraph["documentation"]}
+
+    ---------Current Student Notes---------
+    {current_paragraph["student_notes"]}
+
+"""
 
 def format_content_markdown(current_paragraph: dict, full_document: str) -> str:
     """Format educational content into a nicely formatted markdown string for display
@@ -74,16 +95,16 @@ def format_content_markdown(current_paragraph: dict, full_document: str) -> str:
         full_document: The document thread text
     """
     return f"""
-    ### Audio Transcription
+    ---------- Audio Transcription ----------
     {current_paragraph["audio_transcription"]}
 
-    ### Slide Text
-    {current_paragraph["slide_text"]}
+    ---------- Documentation ----------
+    {current_paragraph["documentation"]}
 
-    ### Student Notes
+    ---------- Student Notes ----------
     {current_paragraph["student_notes"]}
 
-    ### Full document
+    ---------- Full document ----------
     {full_document}
 
 ---
@@ -344,3 +365,24 @@ def show_graph(graph, xray=False):
         nest_asyncio.apply()
         from langchain_core.runnables.graph import MermaidDrawMethod
         return Image(graph.get_graph().draw_mermaid_png(draw_method=MermaidDrawMethod.PYPPETEER))
+    
+
+def append_paragraph(current_paragraph, audio_transcription=None, documentation=None, student_notes=None):
+    """
+    Intelligently append new content to the current paragraph using smart_append logic.
+    Args:
+        current_paragraph: Dictionary with existing paragraph content
+        audio_transcription: New audio transcription text to append
+        documentation: New documentation slide text to append
+        student_notes: New student notes text to append
+    Returns:
+        Updated paragraph dictionary with new content appended
+    """
+    updated = current_paragraph.copy()
+    if audio_transcription:
+        updated["audio_transcription"] = smart_append(current_paragraph.get("audio_transcription", ""), audio_transcription)
+    if documentation:
+        updated["documentation"] = smart_append(current_paragraph.get("documentation", ""), documentation)
+    if student_notes:
+        updated["student_notes"] = smart_append(current_paragraph.get("student_notes", ""), student_notes)
+    return updated

@@ -10,9 +10,9 @@ class RouterSchema(BaseModel):
     reasoning: str = Field(
         description="Step-by-step reasoning behind the classification."
     )
-    classification: Literal["continue", "resume", "new"] = Field(
+    classification: Literal["continue", "ignore", "new"] = Field(
         description="The classification for a sentence input: 'continue' for ongoing topics in the paragraph, "
-                    "'resume' for revisiting previous points, "
+                    "'ignore' for skipping irrelevant points, "
                     "'new' for introducing new topics.",
     )
     paragraph_id: int = Field(
@@ -22,11 +22,13 @@ class RouterSchema(BaseModel):
 class StateInput(TypedDict):
     # This is the input to the state
     content_input: dict
+    final_notes: dict
+    current_paragraph: dict
 
 class State(MessagesState):
     # This state class has the messages key build in
     content_input: dict
-    classification_decision: Literal["continue", "resume", "new"]
+    classification_decision: Literal["continue", "ignore", "new"]
     final_notes: dict
     current_paragraph: dict
 

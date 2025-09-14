@@ -58,12 +58,66 @@ The system supports different workflow configurations for three-source processin
 
 ## Getting Started
 
-1. Install dependencies (see `pyproject.toml`)
-2. Run the example demo:
+1. Install dependencies:
+
    ```bash
-   python examples/learning_assistant_demo.py
+   # Create and activate a virtual environment
+   python3 -m venv .venv
+   source .venv/bin/activate
+
+   # Ensure you have a recent version of pip (required for editable installs with pyproject.toml)
+   python3 -m pip install --upgrade pip
+
+   # Install the package in editable mode
+   pip install -e .
    ```
-3. Integrate with your content processing pipeline
+
+2. Run the local deployment:
+   ```bash
+   source .venv/bin/activate && langgraph dev
+   ```
+3. Test input:
+
+   ```python
+   content_input = {
+    "audio_transcription": "Let's talk about Storage Limitation, it's a principle that requires that personal data must not be maintained for longer than is necessary. For Example, suppose that an agent starts an action after eight years, nine years from the determination of the agreement, the employer do not have the optimal evidence, it's a proof for demonstrating, demonstrating for instance, that he acted in a lawful way, because he stored data for a period of time, not sufficient to the evidence, this is the foreman most trading, it's lawful, it's lawful behavior",
+    "documentation": "Storage Limitation\nThe storage limitation principle requires that personal data must not be maintained for longer than is necessary to fulfil the goal of their collection. Data must be erased when the data processing purpose is achieved. This means that storing any data longer than necessary is not permitted (art. 5.1.e).",
+    "student_notes": "### Storage Limitation: personal data must not be maintained for longer that is necessary",
+    "document_thread": ""
+   }
+   ```
+
+## Running Tests
+
+We can run small tests on our system by using the `learning_dataset.py` dataset
+
+### Testing Triage Router
+
+We can run the command
+
+```bash
+python3 ./tests/test_triage.py
+```
+
+To see how the triage router classifies the inputs in the dataset, the final results can be seen in the langchain portal
+
+![Test Results](img/Triage_Evaluation.png)
+
+### Testing Learning Assistant
+
+We can then run our learning_assistant against a larger test suite.
+
+```
+! LANGSMITH_TEST_SUITE='Learning assistant: Test Full Response Interrupt' LANGSMITH_EXPERIMENT='learning_assistant' AGENT_MODULE=learning_assistant pytest tests/test_system.py
+```
+
+![Test Results](img/End-to-End_Evaluation.png)
+
+What the test does:
+
+- We pass our dataset examples into functions that will run pytest and log to our `LANGSMITH_TEST_SUITE`
+- We use LLM-as-judge with a grading schema:
+- We evaluate the agent response relative to the criteria
 
 ## Future Enhancements
 

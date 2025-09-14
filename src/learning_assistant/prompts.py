@@ -2,7 +2,7 @@ from datetime import datetime
 
 triage_system_prompt = """
 < Role >
-Your role is to triage incoming sentences from lecture material, slides, or handwritten notes.
+Your role is to triage incoming data from audio transcriptions, slide text and student notes.
 </ Role >
 
 < Background >
@@ -10,10 +10,10 @@ Your role is to triage incoming sentences from lecture material, slides, or hand
 </ Background >
 
 < Instructions >
-Classify the incoming sentence into one of these categories:
-1. CONTINUE - The new sentence is a natural continuation of the current paragraph (same topic, no significant topic shift) or in general the lecturer has not changed to a new or different topic.
-2. RESUME - The new sentence highlights a change in topic and the lecturer has made a correction, clarification, or addition related to a previous point.
-3. NEW - The new sentence introduces a distinct topic that should start a new paragraph.
+Classify the incoming data into one of these categories:
+1. CONTINUE - The input data is a natural continuation of the current paragraph (same topic, no significant topic shift) or in general the lecturer has not changed to a new or different topic.
+2. IGNORE - The input data is not related with the rest of the paragraph and can be disregarded.
+3. NEW - The input data introduces a distinct topic (Documentation text change or sign of change in the audio transcription) that should start a new paragraph.
 </ Instructions >
 
 < Rules >
@@ -23,12 +23,13 @@ Classify the incoming sentence into one of these categories:
 
 # User prompt for triage
 triage_user_prompt = """
-Please determine how to handle this sentence below:
+Please determine how to handle this Input data:
 
-Audio transcription: {audio_transcription}
-Document/Slide text: {slide_text}
-Student notes: {student_notes}
-Current working paragraph: {current_paragraph}
+- Audio transcription: {audio_transcription}
+- Documentation text: {slide_text}
+- Student notes: {student_notes}
+
+Considering the current paragraph data: {current_data}
 Full document context: {full_document}
 """
 
@@ -154,29 +155,67 @@ I am Dario, a student in engineering at Politecnico di Torino currently studying
 You are helping me maintain a structured set of lecture notes. The notes are organized into paragraphs under topics and subtopics.
 """
 
+# - The student notes are about the same topic reported in document_thread.
 default_triage_instructions = """CONTINUE:
+In general, it is applied if the content of Slide Text in document_thread is still the same in documentation.
+- The document_thread is empty so we are recieving the first input.
 - Same topic as current paragraph.
-- Slide or documentation has not changed to a new or different topic.
 - Expands or clarifies the current idea without major shift.
 - Examples:
+  - In document notes: "Wiestrass theorem: definition, importance of zeros" and in document_thread "...---------- Student notes ----------\n Wiestrass theorem: definition"
   - "This theorem also applies to non-linear systems."
   - "An example of this can be found in image recognition models."
 
-RESUME:
-- Clearly related to a past paragraph but not the current one.
-- Revisits earlier concepts, definitions, or examples.
-- Slide or documentation has changed to a different topic.
-- Performs a correction, clarification, or addition related to a previous point.
+IGNORE:
+In general, it is applied when the lesson is interrupted for non-didactic reasons
+- Interruption of the lesson made by internal or external factors.
+- Off topic chatting picked up by the audio transcription.
 - Examples:
-  - "Actually we should mention that this applies to all linear systems..."
-  - "Returning to the earlier point about wave interference..."
+  - "Oh I don't know why this microphone isn't working today..."
+  - "Does anyone in the class have an HDMI cable because I left mine at home..."
 
 NEW:
+In general, it is applied if the content of Slide Text in document_thread has changed in documentation.
+- In the student notes, we are introducing a new concept or topic.
 - Starts a new concept, topic, or section.
 - Abrupt shift in subject matter or purpose.
+- Introduction of a definition of a new principle or concept.
 - Examples:
+  - In document notes: "Wiestrass theorem: definition" and in document_thread "...---------- Student notes ----------\n Rolle Theorem: definition"
   - "Now let's move on to the history of this method."
   - "Next, we will look at the experimental results.
+  - "This concept is defined as the one protecting the integrity of data"
+"""
+
+triage_instructions = """
+Classify the incoming data into one of these categories:
+
+CONTINUE: The input data is still related to the current working paragraph topic (same topic, no significant topic shift).
+- The data in Documentation text has not changed compared to the current paragraph.
+- The data in Student notes is continuing, complementing or expanding the same topic without introducing new concepts (e.g., clarifications on the definition, listing attributes of a concept or providing examples).
+- The lecturer is talking about the same topic as the current paragraph in the audio transcription.
+- The Full document context is empty so we are recieving the first input.
+- Examples:
+  - "- Documentation text: The theorem has important implications in the existence of zeros of a function.\n[...]\nConsidering the current paragraph data:\n[...]\n---------Current Documentation---------\Bolzano theorem: given an interval [a, b] where f(a) < 0 and f(b) > 0, there exists at least one c in (a, b) such that f(c) = 0.[...]"
+  - "- Student notes: importance of zeros\n[...]\nConsidering the current paragraph data:\n[...]\n---------Current Student Notes---------\nBolzano theorem: if f(a) < 0 and f(b) > 0, there exists c in (a, b) such that f(c) = 0.[...]"
+  - "- Audio transcription: for example, if we consider a simple continuous function like f(x) = x^3 - x, we can see that it crosses the x-axis at multiple points\n[...]\n---------Current Audio Transcription---------\nNow, let's introduce the Bolzano theorem, that states that if we have a function continuous over a closed interval (a,b) and f(a) < 0 and f(b) > 0, then there exists at least one c in (a,b) such that f(c) = 0.[...]"
+
+IGNORE: The input Audio Transcription or Student notes contains a clear interruption of the lesson for non-didactic reasons
+- Interruption of the lesson made by internal or external factors.
+- Off topic chatting picked up by the audio transcription.
+- Examples:
+  - "- Audio transcription: Oh I don't know why this microphone isn't working today[...]"
+  - "- Audio transcription: Does anyone in the class have an HDMI cable because I left mine at home[...]"
+
+NEW: The input data introduces a distinct topic in at least one of the input sources.
+- The data in Documentation introduces a new definition or concept compared to the current paragraph (new point or topic).
+- The Student notes present a title or a clear indication of a new concept or topic.
+- The data in Audio transcription presents an abrupt start of a new topic or concept compared to the current paragraph (e.g., "Now let's move on to...", "The New Deal was a...", "This concept is defined as...").
+- Comparing the data between input data and current working paragraph, at least one of the three sources is introducing a new concept or topic.
+- Examples:
+  - "- Audio transcription: Now let's move to the concept of VC dimension.[...]\nConsidering the current paragraph data:\n[...]\n---------Current Audio Transcription---------\nWhat is the Rademacher complexity? I know it is a complex topic but we just need to understand it's general working[...]"
+  - "- Documentation text: Rolle Theorem: definition\n[...]\nConsidering the current paragraph data:\n[...]\n---------Current Documentation---------\nBolzano theorem: given an interval [a, b] where f(a) < 0 and f(b) > 0, [...]"
+  - "- Student notes: Subject's rights: right to object, right to information\n[...]\nConsidering the current paragraph data:\n[...]\n---------Current Student Notes---------\nPrinciple of data minimization: only collect data that is necessary for the specific purpose[...]"
 """
 
 # Default content processing preferences
