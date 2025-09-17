@@ -1,7 +1,8 @@
 {
   "dockerfile_lines": [],
   "graphs": {
-    "learning_assistant": "./src/learning_assistant/learning_assistant.py:learning_assistant"
+    "learning_assistant": "./src/learning_assistant/learning_assistant.py:learning_assistant",
+    "learning_assistant_hitl": "./src/learning_assistant/learning_assistant_hitl.py:learning_assistant"
   },
   "python_version": "3.11",
   "env": ".env",

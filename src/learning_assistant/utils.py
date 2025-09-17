@@ -110,6 +110,35 @@ def format_content_markdown(current_paragraph: dict, full_document: str) -> str:
 ---
 """
 
+def format_paragraph_input(audio_transcription: str, documentation: str, student_notes: str, final_document: str) -> str:
+    """Format individual content inputs into a single string.
+    
+    Args:
+        audio_transcription: The audio transcription text
+        documentation: The documentation slide content
+        student_notes: The student notes content
+        final_document: The current state of the full document
+        
+    Returns:
+        A formatted string representing the paragraph content
+    """
+    return f"""
+
+    **Audio Transcription**
+    {audio_transcription}
+
+    **Documentation**
+    {documentation}
+
+    **Student Notes**
+    {student_notes}
+
+    **Full Document**
+    {final_document}
+
+---
+"""
+
 def format_document_section(section_id: str, title: str, content: str, level: int = 1) -> str:
     """Format a document section with proper markdown hierarchy
     
@@ -135,19 +164,9 @@ def format_for_display(tool_call: Dict[str, Any]) -> str:
         tool_call: The tool call to format
     """
     display = ""
-    
-    if tool_call["name"] == "search_document":
-        display += f"""# Document Search
 
-**Query**: {tool_call["args"].get("query")}
-**Content Type**: {tool_call["args"].get("content_type")}
-
-Searching for the best location to insert this content...
-"""
-    elif tool_call["name"] == "write_content":
-        section_info = ""
-        if tool_call["args"].get("section_id"):
-            section_info = f"**Section**: {tool_call['args']['section_id']}\n"
+    if tool_call["name"] == "write_content":
+        section_info = f"**Section**: {tool_call['args']['section_id']}\n"
         
         display += f"""# Content Integration
 

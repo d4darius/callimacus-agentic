@@ -61,9 +61,9 @@ The system supports different workflow configurations for three-source processin
 1. Install dependencies:
 
    ```bash
-   # Create and activate a virtual environment
-   python3 -m venv .venv
-   source .venv/bin/activate
+   # Create and activate a virtual environment (with name callimacus_env)
+   python3 -m venv callimacus_env
+   source callimacus_env/bin/activate
 
    # Ensure you have a recent version of pip (required for editable installs with pyproject.toml)
    python3 -m pip install --upgrade pip

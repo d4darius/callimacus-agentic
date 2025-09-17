@@ -55,9 +55,10 @@ def generate_section_id(final_notes: Dict[str, str]) -> str:
 
 class WriteContentInput(BaseModel):
     """Input for write content tool."""
-    integrated_content: str = Field(description="The integrated content combining audio, slides, and notes")
+    content: str = Field(description="The integrated content combining audio, slides, and notes")
     section_id: Optional[str] = Field(default=None, description="ID of the section to write to. If None, creates new section")
     position: str = Field(default="append", description="Where to place content: 'append', 'prepend', or 'replace'")
+    final_notes: Optional[Dict[str, str]] = Field(default=None, description="Current state of the final notes dictionary")
 
 
 class EnhanceContentInput(BaseModel):
@@ -89,23 +90,30 @@ class WriteContentTool(BaseTool):
     updating both the state and the notes file."""
     args_schema: type[WriteContentInput] = WriteContentInput
     
-    def _run(self, integrated_content: str, section_id: Optional[str] = None, position: str = "append") -> str:
-        """Write integrated content to the document.
-        
-        Returns a JSON string with the state update information that the workflow can use
-        to update both final_notes dict and write to notes.md file.
-        """
-        # Since tools can't directly access state, we return instructions for the workflow
-        result = {
+    def _run(self, content: str, section_id: Optional[str] = None, position: str = "append", final_notes: Optional[Dict[str, str]] = None, file_path: str = "notes.md") -> str:
+        if final_notes is None:
+            final_notes = {}
+        # Generate section ID if not provided
+        if not section_id:
+            section_id = generate_section_id(final_notes)
+        # Update content based on position
+        if position == "replace" or section_id not in final_notes:
+            final_notes[section_id] = content
+        elif position == "append":
+            final_notes[section_id] = final_notes.get(section_id, "") + "\n\n" + content
+        elif position == "prepend":
+            final_notes[section_id] = content + "\n\n" + final_notes.get(section_id, "")
+        # Write to notes.md file
+        write_notes_to_file(final_notes, file_path)
+        # Return a summary message
+        return json.dumps({
             "action": "write_content",
             "section_id": section_id,
-            "content": integrated_content,
+            "content": content,
             "position": position,
-            "instructions": "Update final_notes dict and write to notes.md file"
-        }
-        
-        # Return a structured response that the workflow can parse
-        return json.dumps(result, indent=2)
+            "instructions": "Content written to notes.md",
+            "final_notes": final_notes
+        }, indent=2)
 
 
 class EnhanceContentTool(BaseTool):

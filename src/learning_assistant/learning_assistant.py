@@ -1,11 +1,12 @@
 from typing import Literal
 import os
+import json
 
 from langchain.chat_models import init_chat_model
 
 from learning_assistant.tools import get_tools, get_tools_by_name
 from learning_assistant.tools.default.learning_tools import write_notes_to_file, generate_section_id
-from learning_assistant.tools.default.prompt_templates import AGENT_TOOLS_PROMPT
+from learning_assistant.tools.default.prompt_templates import STANDARD_TOOLS_PROMPT
 from learning_assistant.prompts import triage_system_prompt, triage_user_prompt, content_system_prompt, default_background, default_triage_instructions, triage_instructions, default_content_preferences, default_enhancement_preferences, default_organization_preferences
 from learning_assistant.schemas import State, RouterSchema, StateInput
 from learning_assistant.utils import parse_content_input, format_current_data, format_content_markdown, format_final_notes, show_graph, append_paragraph
@@ -43,7 +44,7 @@ def llm_call(state: State):
             llm_with_tools.invoke(
                 [
                     {"role": "system", "content": content_system_prompt.format(
-                        tools_prompt=AGENT_TOOLS_PROMPT,
+                        tools_prompt=STANDARD_TOOLS_PROMPT,
                         background=default_background,
                         content_preferences=default_content_preferences, 
                         enhancement_preferences=default_enhancement_preferences,
@@ -58,64 +59,17 @@ def llm_call(state: State):
 
 def tool_node(state: State):
     """Performs the tool call and handles state updates for WriteContentTool"""
-    import json
     
     result = []
-    state_updates = {}
     
     for tool_call in state["messages"][-1].tool_calls:
         tool = tools_by_name[tool_call["name"]]
         observation = tool.invoke(tool_call["args"])
-        
-        # Handle WriteContentTool responses specially
-        if tool_call["name"] == "write_content":
-            try:
-                # Parse the JSON response from WriteContentTool
-                tool_response = json.loads(observation)
-                
-                if tool_response.get("action") == "write_content":
-                    # Update final_notes in state
-                    final_notes = state.get("final_notes", {}).copy()
-                    
-                    section_id = tool_response.get("section_id")
-                    content = tool_response.get("content")
-                    position = tool_response.get("position", "append")
-                    
-                    # Generate section ID if not provided
-                    if not section_id:
-                        section_id = generate_section_id(final_notes)
-                    
-                    # Update content based on position
-                    if position == "replace" or section_id not in final_notes:
-                        final_notes[section_id] = content
-                    elif position == "append":
-                        final_notes[section_id] = final_notes.get(section_id, "") + "\n\n" + content
-                    elif position == "prepend":
-                        final_notes[section_id] = content + "\n\n" + final_notes.get(section_id, "")
-                    
-                    # Write to notes.md file
-                    write_notes_to_file(final_notes, "notes.md")
-                    
-                    # Prepare state update
-                    state_updates["final_notes"] = final_notes
-                    
-                    # Create user-friendly response
-                    observation = f"✓ Content written to section '{section_id}' and saved to notes.md\n\nContent preview: {content[:150]}{'...' if len(content) > 150 else ''}"
-                    
-            except (json.JSONDecodeError, KeyError) as e:
-                observation = f"Error processing WriteContentTool response: {e}"
-        
         result.append({"role": "tool", "content": observation, "tool_call_id": tool_call["id"]})
     
     # Return messages and any state updates
     response = {"messages": result}
-    if state_updates:
-        response.update(state_updates)
-    
     return response
-
-# Import the utility functions from the tools module
-from learning_assistant.tools.default.learning_tools import write_notes_to_file, generate_section_id
 
 # Conditional edge function
 def should_continue(state: State) -> Literal["tool_node", "__end__"]:
