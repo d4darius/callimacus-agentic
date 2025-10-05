@@ -38,50 +38,58 @@ final_notes = dict
 # Nodes
 def llm_call(state: State):
     """LLM decides whether to call a tool or not"""
-
-    return {
-        "messages": [
-            llm_with_tools.invoke(
-                [
-                    {"role": "system", "content": content_system_prompt.format(
-                        tools_prompt=STANDARD_TOOLS_PROMPT,
-                        background=default_background,
-                        content_preferences=default_content_preferences, 
-                        enhancement_preferences=default_enhancement_preferences,
-                        organization_preferences=default_organization_preferences)
-                    },
-                    
-                ]
-                + state["messages"]
-            )
-        ]
-    }
+    try: 
+        return {
+            "messages": [
+                llm_with_tools.invoke(
+                    [
+                        {"role": "system", "content": content_system_prompt.format(
+                            tools_prompt=STANDARD_TOOLS_PROMPT,
+                            background=default_background,
+                            content_preferences=default_content_preferences, 
+                            enhancement_preferences=default_enhancement_preferences,
+                            organization_preferences=default_organization_preferences)
+                        },
+                        
+                    ]
+                    + state["messages"]
+                )
+            ]
+        }
+    except Exception as e:
+        print(f"Error during LLM call: {e}")
+        return {"messages": []}
 
 def tool_node(state: State):
     """Performs the tool call and handles state updates for WriteContentTool"""
-    
     result = []
-    
     for tool_call in state["messages"][-1].tool_calls:
         tool = tools_by_name[tool_call["name"]]
         observation = tool.invoke(tool_call["args"])
-        result.append({"role": "tool", "content": observation, "tool_call_id": tool_call["id"]})
-    
+        result.append({
+            "role": "tool",
+            "content": observation,
+            "tool_call_id": tool_call["id"]
+        })
     # Return messages and any state updates
-    response = {"messages": result}
-    return response
+    return {"messages": result}
 
 # Conditional edge function
 def should_continue(state: State) -> Literal["tool_node", "__end__"]:
     """Route to tool_node, or end if done tool called"""
     messages = state["messages"]
-    last_message = messages[-1]
-    if last_message.tool_calls:
-        for tool_call in last_message.tool_calls: 
-            if tool_call["name"] == "done":
-                return END
-            else:
-                return "tool_node"
+    for msg in reversed(messages):
+        # LangChain AIMessage or dict with role "assistant"
+        role = getattr(msg, "role", None) or (msg.get("role") if isinstance(msg, dict) else None)
+        tool_calls = getattr(msg, "tool_calls", None) if hasattr(msg, "tool_calls") else (msg.get("tool_calls") if isinstance(msg, dict) else None)
+        if role == "assistant" and tool_calls:
+            for tool_call in tool_calls:
+                name = tool_call.get("name") if isinstance(tool_call, dict) else getattr(tool_call, "name", None)
+                if name == "done":
+                    return END
+                else:
+                    return "tool_node"
+    return END
             
 # --------------
 # AGENT WORKFLOW
@@ -121,15 +129,7 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
     The goal is to reduce the number of llm calls for the final merge
     """
     # Parse the new incoming content
-    audio_transcription, documentation, student_notes = parse_content_input(state["content_input"])
-    current_paragraph = state["current_paragraph"]
-
-    # Get the document_thread directly from content_input - this contains accumulated paragraph data
-    document_thread = state["content_input"].get("document_thread", "")
-    
-    # Handle missing or empty final_notes
-    final_notes = state.get("final_notes", {})
-    full_document = format_final_notes(final_notes) if final_notes else ""
+    audio_transcription, documentation, student_notes, current_paragraph, full_document = parse_content_input(state["content_input"])
     
     system_prompt = triage_system_prompt.format(
         background=default_background,
@@ -185,12 +185,13 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
         # Format the current paragraph data to markdown for the content agent
         paragraph_data = format_content_markdown(current_paragraph, full_document)
         
+        new_user_message = {
+            "role": "user",
+            "content": f"Create a new paragraph from the following paragraph data: {paragraph_data} with id {result.paragraph_id}."
+        }
         update = {
             "classification_decision": result.classification,
-            "messages": [{"role": "user",
-                            "content": f"Create a new paragraph from the following paragraph data: {paragraph_data} with id {result.paragraph_id}."
-                        }],
-            # Initialize current_paragraph with the new incoming content for next accumulation cycle
+            "messages": [new_user_message],
             "current_paragraph": {
                 "audio_transcription": audio_transcription,
                 "documentation": documentation,
@@ -208,7 +209,7 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
 # Rebuild the workflow to ensure updated functions are used
 overall_workflow = (
     StateGraph(State, input=StateInput)
-    .add_node("triage_router", triage_router)  # Explicitly pass the updated function
+    .add_node(triage_router)
     .add_node("content_agent", agent)
     .add_edge(START, "triage_router")
 )

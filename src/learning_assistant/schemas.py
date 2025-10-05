@@ -22,14 +22,11 @@ class RouterSchema(BaseModel):
 class StateInput(TypedDict):
     # This is the input to the state
     content_input: dict
-    final_notes: dict
-    current_paragraph: dict
 
 class State(MessagesState):
     # This state class has the messages key build in
     content_input: dict
     classification_decision: Literal["continue", "ignore", "new"]
-    final_notes: dict
     current_paragraph: dict
 
 class LectureData(TypedDict):

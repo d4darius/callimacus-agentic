@@ -85,9 +85,7 @@ def interrupt_handler(state: State) -> Command[Literal["llm_call", "__end__"]]:
             
         # Get original content from content_input in state
         content_input = state["content_input"]
-        current_notes = state.get("final_notes", {})
-        audio_transcription, documentation, student_notes = parse_content_input(content_input)
-        final_document = format_final_notes(current_notes) if current_notes else ""
+        audio_transcription, documentation, student_notes, _, final_document = parse_content_input(content_input)
         input_data_markdown = format_paragraph_input(audio_transcription, documentation, student_notes, final_document)
 
         # Format tool call for display and prepend the original email
@@ -274,15 +272,7 @@ def triage_router(state: State) -> Command[Literal["content_agent", "__end__"]]:
     The goal is to reduce the number of llm calls for the final merge
     """
     # Parse the new incoming content
-    audio_transcription, documentation, student_notes = parse_content_input(state["content_input"])
-    current_paragraph = state["current_paragraph"]
-
-    # Get the document_thread directly from content_input - this contains accumulated paragraph data
-    document_thread = state["content_input"].get("document_thread", "")
-    
-    # Handle missing or empty final_notes
-    final_notes = state.get("final_notes", {})
-    full_document = format_final_notes(final_notes) if final_notes else ""
+    audio_transcription, documentation, student_notes, current_paragraph, full_document = parse_content_input(state["content_input"])
     
     system_prompt = triage_system_prompt.format(
         background=default_background,

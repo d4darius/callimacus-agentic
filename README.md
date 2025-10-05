@@ -119,6 +119,26 @@ What the test does:
 - We use LLM-as-judge with a grading schema:
 - We evaluate the agent response relative to the criteria
 
+### Human-In-The-Loop Feature
+
+The multi-agent system offers a Human-In-The-Loop (HITL) feature that allows the user to interact with the agent and change, suggest or ignore things that are submitted by the agent. More in particular it is possible to:
+
+- **Ignore**: do not consider the question or discard the data to be written
+- **Respond**: answer to a question or provide an input to the agent on the current data to be written
+- **Accept**: accept the proposal of what to be written (not available for question)
+- **Edit**: modify the content of the data to be written (not available for question)
+
+In order to have a more interactive demo, once we launch our local deployment using
+
+```bash
+source .venv/bin/activate && langgraph dev
+```
+
+It is possible to see the interrupt data and handle it through the UI provided at [dev.agentinbox.ai](https://dev.agentinbox.ai/). To connect with the graph we simply input:
+
+- Graph name: the name from the `langgraph.json` file (`learning_assistant_hitl`)
+- Graph URL: `http://127.0.0.1:2024/`
+
 ## Future Enhancements
 
 - **Advanced search**: Semantic similarity for better content placement across three sources

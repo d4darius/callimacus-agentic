@@ -104,8 +104,7 @@ def format_content_markdown(current_paragraph: dict, full_document: str) -> str:
     ---------- Student Notes ----------
     {current_paragraph["student_notes"]}
 
-    ---------- Full document ----------
-    {full_document}
+{full_document}
 
 ---
 """
@@ -215,7 +214,7 @@ Arguments:"""
     
     return display
 
-def parse_content_input(content_input: dict) -> tuple[str, str, str]:
+def parse_content_input(content_input: dict) -> tuple[str, str, str, dict]:
     """Parse a content input dictionary.
 
     Args:
@@ -235,6 +234,8 @@ def parse_content_input(content_input: dict) -> tuple[str, str, str]:
         content_input["audio_transcription"],
         content_input["documentation"],
         content_input["student_notes"],
+        content_input["current_paragraph"],
+        content_input["document_thread"]
     )
 
 def format_final_notes(notes: dict) -> dict:
