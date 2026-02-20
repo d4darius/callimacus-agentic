@@ -1,0 +1,283 @@
+:root {
+  --nvbh: 45px; /* Thinner, sleeker navbar */
+  --mwd: 40vw; /* Use viewport width for a more responsive split */
+
+  /* Notion-style Dark Mode Palette */
+  --bg-navbar: #202020;
+  --bg-document: #191919;
+  --bg-media: #252525;
+  --text-main: rgba(255, 255, 255, 0.85);
+  --text-heading: rgba(255, 255, 255, 0.95);
+
+  /* System font stack for that native, crisp look */
+  --font-stack:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+body,
+.App {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  font-family: var(--font-stack);
+  color: var(--text-main);
+  background-color: var(--bg-document);
+}
+
+.navbar {
+  height: var(--nvbh);
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-navbar);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.wrap {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: calc(100vh - var(--nvbh));
+}
+
+/* 
+SIDEBAR 
+*/
+.sidebar {
+  width: 260px;
+  height: 100%;
+  background-color: var(--bg-navbar); /* Matches your existing dark theme */
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 20px 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.workspace-name {
+  color: var(--text-heading);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.new-doc-button {
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.new-doc-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.doc-list {
+  list-style: none;
+  padding: 10px;
+  margin: 0;
+  overflow-y: auto;
+}
+
+.doc-item-wrapper {
+  margin-bottom: 4px;
+}
+
+.doc-item-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 4px;
+  padding-right: 8px;
+  transition: background 0.1s;
+}
+
+.doc-item-container:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.doc-item-container.active {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Adjust the main button so it doesn't overlap the pencil */
+.doc-item-button {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-item-container.active .doc-item-button {
+  color: white;
+  font-weight: 500;
+}
+
+/* The pencil icon button */
+.rename-trigger-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  opacity: 0; /* Hidden by default */
+  transition:
+    opacity 0.2s,
+    color 0.2s;
+  font-size: 1rem;
+}
+
+.doc-item-container:hover .rename-trigger-btn {
+  opacity: 1; /* Shows up on hover! */
+}
+
+.rename-trigger-btn:hover {
+  color: white;
+}
+
+/* The text input when renaming */
+.rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--bg-media);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 7px 10px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: var(--font-stack);
+  outline: none;
+}
+
+.rename-input:focus {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.sidebar-error {
+  color: #ff6b6b;
+  padding: 10px 15px;
+  font-size: 0.8rem;
+}
+
+/* MEDIA WINDOW */
+.media-window {
+  width: var(--mwd);
+  height: 100%;
+  background-color: var(--bg-media);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* 
+DOCUMENT WINDOW 
+*/
+.document-window {
+  flex: 1;
+  height: 100%;
+  background-color: var(--bg-document);
+  /* Scroll only the document, not the whole page */
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+/* Constrain width and center it like Notion */
+.fileContent {
+  max-width: 90%;
+  margin: 0 auto;
+  padding: 2vh 10px 10vh 10px; /* Generous top/bottom padding */
+}
+
+.fileContent h1 {
+  color: var(--text-heading);
+  font-size: 3.5rem;
+  margin-top: 0.5rem;
+  font-weight: 700;
+}
+
+/* Strip default list styling */
+.fileContent ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* 
+PARAGRAPH BLOCKS 
+*/
+.paragraphBox {
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.paragraphBox h1 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+/* Make textarea look like seamless text */
+.paragraphText {
+  all: unset; /* Strips borders, outlines, backgrounds */
+  box-sizing: border-box;
+  width: 100%;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-main);
+  white-space: pre-wrap; /* Ensures spacing is respected */
+}
+
+/* Subtle focus state */
+textarea.paragraphText:focus {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+
+/* 
+EMPTY STATE / ERROR SCREEN 
+*/
+.empty-state-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* Centers horizontally */
+  justify-content: center; /* Centers vertically */
+
+  /* Force it to take up the entire right side of the screen */
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  background-color: var(--bg-document);
+}
+
+.grayscale-logo {
+  width: 85px; /* Reduced size */
+  height: 85px; /* Reduced size */
+  object-fit: contain; /* Keeps your logo proportions perfect */
+
+  filter: opacity(0.15) grayscale(100%);
+  margin-bottom: 1rem;
+  /* Optional: if you want it to fade in nicely */
+  transition: opacity 0.3s ease;
+}
+
+.empty-state-text {
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 0.85rem; /* Made the text slightly smaller to match the logo */
+  font-weight: 500;
+  font-family: var(--font-stack);
+  margin: 0; /* Removes default paragraph spacing */
+}
