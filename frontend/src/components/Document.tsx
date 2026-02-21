@@ -37,24 +37,31 @@ async function saveDocContent(
   if (!res.ok) throw new Error(`Failed to save doc: ${docId}`);
 }
 
-/* PARALLEL PARAGRAPH MEMORY */
-type ParagraphStatus = "draft" | "review" | "processed" | "warning";
-
-// Our "Shadow Memory" to track metadata outside of React's render cycle
-interface BlockMetadata {
-  contentSnapshot: string;
-  status: ParagraphStatus;
-  timeoutId?: number; // NodeJS.Timeout in pure TS/Node environments
-}
-
 function Document({ docname, docId }: DocumentProps) {
-  // Store the initialized BlockNote editor instance
-  const [editor, setEditor] = useState<BlockNoteEditor | null>(null);
+  const [editor, setEditor] = useState<BlockNoteEditor<any, any, any> | null>(
+    null,
+  );
   const [error, setError] = useState<string>("");
 
   const saveAbortRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
-  const blockTrackersRef = useRef<Record<string, BlockMetadata>>({});
+
+  // THE SECTION REGISTER
+  const sectionRegister = useRef<
+    Record<
+      string,
+      {
+        status: "draft" | "review" | "processed" | "warning";
+        contentSnapshot: string;
+        blocksPayload: any[];
+        audioContext: string[];
+        ocrContext: string[];
+        timeoutId?: number;
+      }
+    >
+  >({});
+
+  const activeHeadingRef = useRef<string>("doc-start");
 
   // 1) ASYNC INITIALIZATION & LOAD
   useEffect(() => {
@@ -67,7 +74,6 @@ function Document({ docname, docId }: DocumentProps) {
 
         if (!isMounted) return;
 
-        // Safely parse JSON. If the file is empty, initialBlocks stays undefined.
         let initialBlocks = undefined;
         if (rawData) {
           try {
@@ -82,22 +88,50 @@ function Document({ docname, docId }: DocumentProps) {
 
         if (!isMounted) return;
 
-        // Initialize the actual editor with the JSON blocks
         const newEditor = BlockNoteEditor.create({
           initialContent: initialBlocks,
         });
+
+        // PRE-LOAD THE REGISTER TO PREVENT SPAMMING THE LLM
+        if (initialBlocks) {
+          let currentBucket = { headingId: "doc-start", blocks: [] as any[] };
+          const loadedBuckets: (typeof currentBucket)[] = [];
+
+          initialBlocks.forEach((block: any) => {
+            if (block.type === "heading") {
+              if (currentBucket.blocks.length > 0)
+                loadedBuckets.push(currentBucket);
+              currentBucket = { headingId: block.id, blocks: [block] };
+            } else {
+              currentBucket.blocks.push(block);
+            }
+          });
+          if (currentBucket.blocks.length > 0)
+            loadedBuckets.push(currentBucket);
+
+          // Fill the memory so the app knows these are old, finished paragraphs!
+          loadedBuckets.forEach((b) => {
+            sectionRegister.current[b.headingId] = {
+              status: "processed",
+              contentSnapshot: JSON.stringify(b.blocks),
+              blocksPayload: b.blocks,
+              audioContext: [],
+              ocrContext: [],
+            };
+          });
+        }
+
         setEditor(newEditor);
       } catch (e) {
         if (e instanceof Error && e.message.includes("404")) {
           const emptyEditor = BlockNoteEditor.create();
           setEditor(emptyEditor);
         } else {
-          setError("failed"); // Triggers the logo
+          setError("failed");
         }
       }
     }
 
-    // Reset editor state when switching documents
     setEditor(null);
     loadInitialData();
 
@@ -106,75 +140,140 @@ function Document({ docname, docId }: DocumentProps) {
     };
   }, [docId]);
 
-  // The function that runs when a 20-second timer expires
-  const sendBlockToLLM = async (blockId: string) => {
-    const tracker = blockTrackersRef.current[blockId];
-    if (!tracker || tracker.status !== "draft") return;
+  // EXTERNAL CONTEXT INJECTOR: Your external audio/ocr components will call this to secretly dump data into the active bucket
+  const injectBackgroundContext = (type: "audio" | "ocr", rawText: string) => {
+    const activeId = activeHeadingRef.current;
+    if (!sectionRegister.current[activeId]) return;
 
-    // 1. Update state to review
-    tracker.status = "review";
-    console.log(`Block ${blockId} sent to review! Triggering LLM...`);
-
-    // 2. TODO: Gather the block text, OCR data, and STT audio for this timeframe
-    // 3. TODO: Fetch call to your Python LLM Agent
-
-    // Example: On success, mark as processed
-    // tracker.status = "processed";
+    if (type === "audio") {
+      sectionRegister.current[activeId].audioContext.push(rawText);
+    } else {
+      sectionRegister.current[activeId].ocrContext.push(rawText);
+    }
+    console.log(`Injected ${type} data into heading: ${activeId}`);
   };
 
-  // 2) AUTOSAVE WHEN EDITOR CHANGES
+  // 2) SEND TO LLM
+  const sendSectionToLLM = async (headingId: string) => {
+    const registerEntry = sectionRegister.current[headingId];
+
+    if (!registerEntry || registerEntry.status !== "draft") return;
+    registerEntry.status = "review";
+
+    if (editor) {
+      editor.updateBlock(headingId, { props: { backgroundColor: "blue" } });
+    }
+
+    const typedText = registerEntry.blocksPayload
+      .map((block) => {
+        if (Array.isArray(block.content)) {
+          return block.content.map((c: any) => c.text).join("");
+        }
+        return "";
+      })
+      .join("\n");
+
+    const audioText = registerEntry.audioContext.join(" ");
+    const ocrText = registerEntry.ocrContext.join(" ");
+
+    const payloadForPython = {
+      heading_id: headingId,
+      typed_notes: typedText,
+      audio_transcript: audioText,
+      ocr_data: ocrText,
+    };
+
+    console.log(`Sending MULTIMODAL payload to Python:`, payloadForPython);
+    // TODO: fetch("http://localhost:8000/api/llm/process", { ... })
+  };
+
+  // 3) TRACK CHANGES & AUTOSAVE
   const handleEditorChange = async () => {
     if (!editor) return;
 
-    // --- Block-Level LLM Tracking ---
+    // FIND WHERE THE CURSOR IS
+    let activeBlockId: string | null = null;
+    try {
+      const cursor = editor.getTextCursorPosition();
+      activeBlockId = cursor.block.id;
+    } catch (e) {
+      // Cursor might not be focused, ignore
+    }
+
+    // --- STEP A: Build the Buckets ---
+    const buckets: { headingId: string; blocks: any[] }[] = [];
+    let currentBucket = { headingId: "doc-start", blocks: [] as any[] };
+
     editor.document.forEach((block) => {
-      const currentContent = JSON.stringify(block.content);
-      const tracker = blockTrackersRef.current[block.id];
+      if (block.type === "heading") {
+        if (currentBucket.blocks.length > 0) buckets.push(currentBucket);
+        currentBucket = { headingId: block.id, blocks: [block] };
+      } else {
+        currentBucket.blocks.push(block);
+      }
 
-      // If the block is new, or its text content has changed
-      if (!tracker || tracker.contentSnapshot !== currentContent) {
-        // If it's already processed, you mentioned user can request modifications.
-        // For now, if they edit a processed block, we won't auto-reprocess,
-        // so we just update the snapshot and exit.
-        if (tracker?.status === "processed") {
-          tracker.contentSnapshot = currentContent;
-          return;
+      // UPDATE THE ACTIVE TARGET
+      if (activeBlockId && block.id === activeBlockId) {
+        activeHeadingRef.current = currentBucket.headingId;
+      }
+    });
+    if (currentBucket.blocks.length > 0) buckets.push(currentBucket);
+
+    // --- STEP B: Update the Register & Manage Timers ---
+    buckets.forEach((bucket) => {
+      const currentContentStr = JSON.stringify(bucket.blocks);
+      const registerEntry = sectionRegister.current[bucket.headingId];
+
+      if (
+        !registerEntry ||
+        registerEntry.contentSnapshot !== currentContentStr
+      ) {
+        if (registerEntry?.timeoutId)
+          window.clearTimeout(registerEntry.timeoutId);
+
+        const headingBlock = editor.getBlock(bucket.headingId);
+        if (
+          headingBlock &&
+          headingBlock.type === "heading" &&
+          headingBlock.props.backgroundColor !== "default"
+        ) {
+          editor.updateBlock(bucket.headingId, {
+            props: { backgroundColor: "default" },
+          });
         }
 
-        // Clear any existing countdown for this specific block
-        if (tracker?.timeoutId) {
-          window.clearTimeout(tracker.timeoutId);
-        }
+        const existingAudio = registerEntry?.audioContext || [];
+        const existingOcr = registerEntry?.ocrContext || [];
 
-        // Set up the new tracker and 20-second countdown
-        blockTrackersRef.current[block.id] = {
-          contentSnapshot: currentContent,
+        sectionRegister.current[bucket.headingId] = {
           status: "draft",
+          contentSnapshot: currentContentStr,
+          blocksPayload: bucket.blocks,
+          audioContext: existingAudio,
+          ocrContext: existingOcr,
           timeoutId: window.setTimeout(() => {
-            sendBlockToLLM(block.id);
-          }, 20000), // 20 seconds
+            sendSectionToLLM(bucket.headingId);
+          }, 20000),
         };
       }
     });
 
-    // --- Global Document Autosave ---
-    // This runs a 1-second timer to save the whole JSON file to your database
+    // --- PART C: Global Autosave ---
     if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
-
     debounceTimerRef.current = window.setTimeout(async () => {
       saveAbortRef.current?.abort();
       const saveAc = new AbortController();
       saveAbortRef.current = saveAc;
-
       try {
-        // Stringify the entire document array to save it
-        const documentJson = JSON.stringify(editor.document);
-        await saveDocContent(docId, documentJson, saveAc.signal);
-        console.log("Document successfully autosaved to database.");
+        await saveDocContent(
+          docId,
+          JSON.stringify(editor.document),
+          saveAc.signal,
+        );
       } catch (err) {
         console.error("Autosave failed:", err);
       }
-    }, 1000); // Saves 1 second after the user stops typing
+    }, 1000);
   };
 
   if (error)
@@ -185,7 +284,6 @@ function Document({ docname, docId }: DocumentProps) {
       </div>
     );
 
-  // Render a simple loading state while fetching and parsing
   if (!editor)
     return (
       <div style={{ color: "white", padding: "20px" }}>Loading document...</div>
@@ -194,10 +292,6 @@ function Document({ docname, docId }: DocumentProps) {
   return (
     <div className="fileContent">
       <h1>{docname}</h1>
-
-      {/* BlockNoteView handles the entire Notion-like UI.
-        theme="dark" matches the CSS palette we created earlier.
-      */}
       <BlockNoteView
         editor={editor}
         theme="dark"

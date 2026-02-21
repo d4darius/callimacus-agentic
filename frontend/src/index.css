@@ -281,3 +281,26 @@ EMPTY STATE / ERROR SCREEN
   font-family: var(--font-stack);
   margin: 0; /* Removes default paragraph spacing */
 }
+
+/* CUSTOM BLOCK */
+@keyframes pulse-processing {
+  0% {
+    border-left-color: rgba(77, 171, 247, 0.3);
+  } /* Faded blue */
+  50% {
+    border-left-color: rgba(77, 171, 247, 1);
+  } /* Bright blue */
+  100% {
+    border-left-color: rgba(77, 171, 247, 0.3);
+  } /* Faded blue */
+}
+
+/* We will apply this class when the block is in 'review' */
+.llm-status-review {
+  animation: pulse-processing 1.5s infinite ease-in-out;
+}
+
+/* Optional: Add a subtle transition so color changes aren't jarring */
+.llm-block-container {
+  transition: border-color 0.3s ease;
+}
