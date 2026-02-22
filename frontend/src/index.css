@@ -283,24 +283,47 @@ EMPTY STATE / ERROR SCREEN
 }
 
 /* CUSTOM BLOCK */
-@keyframes pulse-processing {
+/* Ensure the pulse animation is ready */
+@keyframes pulse-border {
   0% {
     border-left-color: rgba(77, 171, 247, 0.3);
-  } /* Faded blue */
+  }
   50% {
     border-left-color: rgba(77, 171, 247, 1);
-  } /* Bright blue */
+  }
   100% {
     border-left-color: rgba(77, 171, 247, 0.3);
-  } /* Faded blue */
+  }
 }
 
-/* We will apply this class when the block is in 'review' */
-.llm-status-review {
-  animation: pulse-processing 1.5s infinite ease-in-out;
+/* Review State - Pulsing Blue */
+.bn-container
+  .bn-block[data-content-type="heading"][data-background-color="blue"] {
+  background-color: transparent !important; /* Remove native highlight */
+  border-left: 4px solid #4dabf7 !important;
+  padding-left: 15px !important;
+  animation: pulse-border 1.5s infinite ease-in-out !important;
 }
 
-/* Optional: Add a subtle transition so color changes aren't jarring */
-.llm-block-container {
-  transition: border-color 0.3s ease;
+/* Success State - Solid Green */
+.bn-container
+  .bn-block[data-content-type="heading"][data-background-color="green"] {
+  background-color: transparent !important;
+  border-left: 4px solid #20c997 !important;
+  padding-left: 15px !important;
+}
+
+/* Warning State - Solid Red */
+.bn-container
+  .bn-block[data-content-type="heading"][data-background-color="red"] {
+  background-color: transparent !important;
+  border-left: 4px solid #ff6b6b !important;
+  padding-left: 15px !important;
+}
+
+/* Ensure the heading text remains readable and has a smooth transition */
+.bn-container .bn-block[data-content-type="heading"] {
+  transition:
+    border-left 0.3s ease,
+    padding-left 0.3s ease;
 }

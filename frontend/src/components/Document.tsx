@@ -154,6 +154,7 @@ function Document({ docname, docId }: DocumentProps) {
   };
 
   // 2) SEND TO LLM
+  // 2) SEND TO LLM (WITH DUMMY DEBUGGER)
   const sendSectionToLLM = async (headingId: string) => {
     const registerEntry = sectionRegister.current[headingId];
 
@@ -183,22 +184,112 @@ function Document({ docname, docId }: DocumentProps) {
       ocr_data: ocrText,
     };
 
-    console.log(`Sending MULTIMODAL payload to Python:`, payloadForPython);
-    // TODO: fetch("http://localhost:8000/api/llm/process", { ... })
+    console.log(
+      `[DUMMY API] Payload prepared for ${headingId}:`,
+      payloadForPython,
+    );
+
+    // --- DUMMY LLM SIMULATION ---
+    setTimeout(() => {
+      if (!editor) return;
+
+      // Simulate an 80% chance of success, 20% chance of a warning
+      const isSuccess = Math.random() > 0.2;
+
+      if (isSuccess) {
+        console.log(`[DUMMY API] Success for ${headingId}`);
+        registerEntry.status = "processed";
+        editor.updateBlock(headingId, { props: { backgroundColor: "green" } });
+
+        // Fade the green back to default after 2 seconds for a clean UI
+        setTimeout(() => {
+          const currentBlock = editor.getBlock(headingId);
+          if (currentBlock && currentBlock.props.backgroundColor === "green") {
+            editor.updateBlock(headingId, {
+              props: { backgroundColor: "default" },
+            });
+          }
+        }, 2000);
+      } else {
+        console.log(`[DUMMY API] Warning generated for ${headingId}`);
+        registerEntry.status = "warning";
+        editor.updateBlock(headingId, { props: { backgroundColor: "red" } });
+
+        // Insert a mock warning message directly below the heading
+        editor.insertBlocks(
+          [
+            {
+              type: "paragraph",
+              content:
+                "⚠️ DUMMY WARNING: The LLM thinks you missed a detail here.",
+            },
+          ],
+          headingId,
+          "after",
+        );
+      }
+
+      // Clear the multimodal arrays so they don't double-send on the next edit
+      registerEntry.audioContext = [];
+      registerEntry.ocrContext = [];
+    }, 7000); // 3-second fake network delay
   };
 
-  // 3) TRACK CHANGES & AUTOSAVE
-  const handleEditorChange = async () => {
-    if (!editor) return;
-
-    // FIND WHERE THE CURSOR IS
-    let activeBlockId: string | null = null;
+  // Helper: Finds out which bucket the cursor is currently inside
+  const getActiveHeadingId = () => {
+    if (!editor) return "doc-start";
     try {
       const cursor = editor.getTextCursorPosition();
-      activeBlockId = cursor.block.id;
+      let currentHeading = "doc-start";
+
+      // Read top to bottom, remember the last heading we saw
+      for (const block of editor.document) {
+        if (block.type === "heading") currentHeading = block.id;
+        if (block.id === cursor.block.id) return currentHeading;
+      }
     } catch (e) {
-      // Cursor might not be focused, ignore
+      // If the user clicks completely outside the editor (like the sidebar)
+      // it loses focus. We return null so all timers can start!
+      return null;
     }
+    return "doc-start";
+  };
+
+  // Manages the start/stop of timers based on cursor focus
+  const manageTimers = () => {
+    const activeId = getActiveHeadingId();
+
+    // Update our funnel target for the Audio/OCR streams
+    if (activeId) activeHeadingRef.current = activeId;
+
+    // Evaluate every bucket in our register
+    Object.keys(sectionRegister.current).forEach((headingId) => {
+      const entry = sectionRegister.current[headingId];
+
+      if (entry.status === "draft") {
+        if (headingId === activeId) {
+          // The user is currently inside this draft!
+          // PAUSE/CLEAR the timer. They are actively thinking/working here.
+          if (entry.timeoutId) {
+            window.clearTimeout(entry.timeoutId);
+            entry.timeoutId = undefined;
+          }
+        } else {
+          // The user LEFT this draft!
+          // START the 20-second countdown if it isn't already ticking.
+          if (!entry.timeoutId) {
+            entry.timeoutId = window.setTimeout(() => {
+              sendSectionToLLM(headingId);
+            }, 20000);
+          }
+        }
+      }
+    });
+  };
+
+  // 3) TRACK TYPING & AUTOSAVE
+  const handleEditorChange = async () => {
+    if (!editor) return;
 
     // --- STEP A: Build the Buckets ---
     const buckets: { headingId: string; blocks: any[] }[] = [];
@@ -211,15 +302,10 @@ function Document({ docname, docId }: DocumentProps) {
       } else {
         currentBucket.blocks.push(block);
       }
-
-      // UPDATE THE ACTIVE TARGET
-      if (activeBlockId && block.id === activeBlockId) {
-        activeHeadingRef.current = currentBucket.headingId;
-      }
     });
     if (currentBucket.blocks.length > 0) buckets.push(currentBucket);
 
-    // --- STEP B: Update the Register & Manage Timers ---
+    // --- STEP B: Update the Register for Changes ---
     buckets.forEach((bucket) => {
       const currentContentStr = JSON.stringify(bucket.blocks);
       const registerEntry = sectionRegister.current[bucket.headingId];
@@ -228,9 +314,7 @@ function Document({ docname, docId }: DocumentProps) {
         !registerEntry ||
         registerEntry.contentSnapshot !== currentContentStr
       ) {
-        if (registerEntry?.timeoutId)
-          window.clearTimeout(registerEntry.timeoutId);
-
+        // Reset visual background if they edit a processed/warning block
         const headingBlock = editor.getBlock(bucket.headingId);
         if (
           headingBlock &&
@@ -245,20 +329,22 @@ function Document({ docname, docId }: DocumentProps) {
         const existingAudio = registerEntry?.audioContext || [];
         const existingOcr = registerEntry?.ocrContext || [];
 
+        // Update memory: Mark as draft, save new text, KEEP existing timer state
         sectionRegister.current[bucket.headingId] = {
           status: "draft",
           contentSnapshot: currentContentStr,
           blocksPayload: bucket.blocks,
           audioContext: existingAudio,
           ocrContext: existingOcr,
-          timeoutId: window.setTimeout(() => {
-            sendSectionToLLM(bucket.headingId);
-          }, 20000),
+          timeoutId: registerEntry?.timeoutId, // Keep it, manageTimers will handle it!
         };
       }
     });
 
-    // --- PART C: Global Autosave ---
+    // --- STEP C: Re-evaluate Timers ---
+    manageTimers();
+
+    // --- PART D: Global Autosave ---
     if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = window.setTimeout(async () => {
       saveAbortRef.current?.abort();
@@ -290,13 +376,77 @@ function Document({ docname, docId }: DocumentProps) {
     );
 
   return (
-    <div className="fileContent">
+    <div className="fileContent" style={{ position: "relative" }}>
       <h1>{docname}</h1>
       <BlockNoteView
         editor={editor}
         theme="dark"
         onChange={handleEditorChange}
+        onSelectionChange={manageTimers}
       />
+
+      {/* FLOATING DEBUGGER PANEL */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 20,
+          right: 20,
+          background: "#222",
+          padding: "10px",
+          borderRadius: "8px",
+          border: "1px solid #444",
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+          zIndex: 9999,
+        }}
+      >
+        <span
+          style={{
+            color: "#aaa",
+            fontSize: "12px",
+            textAlign: "center",
+            fontWeight: "bold",
+          }}
+        >
+          LLM Debugger
+        </span>
+        <button
+          onClick={() =>
+            injectBackgroundContext(
+              "audio",
+              "[MOCK AUDIO: 'The professor mentioned 1945'] ",
+            )
+          }
+          style={{
+            background: "#4dabf7",
+            color: "white",
+            border: "none",
+            padding: "6px 12px",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontSize: "12px",
+          }}
+        >
+          🎤 Inject Audio
+        </button>
+        <button
+          onClick={() =>
+            injectBackgroundContext("ocr", "[MOCK OCR: 'Slide 4: GDP Growth'] ")
+          }
+          style={{
+            background: "#20c997",
+            color: "white",
+            border: "none",
+            padding: "6px 12px",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontSize: "12px",
+          }}
+        >
+          📷 Inject OCR
+        </button>
+      </div>
     </div>
   );
 }
