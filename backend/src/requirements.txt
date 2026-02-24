@@ -1,2 +1,13 @@
+# Web Framework
 fastapi
 uvicorn
+
+# AI Engine (LangChain & LangGraph)
+langchain
+langchain-core
+langgraph
+langchain-openai
+
+# Data Validation & Environment
+pydantic
+python-dotenv

@@ -1,1 +1,134 @@
-[{"id":"block-1-intro-heading","type":"heading","props":{"backgroundColor":"default","textColor":"default","textAlignment":"left","level":1,"isToggleable":false},"content":[{"type":"text","text":"Intro","styles":{}}],"children":[]},{"id":"block-2-intro-text","type":"paragraph","props":{"backgroundColor":"default","textColor":"default","textAlignment":"left"},"content":[{"type":"text","text":"Hello from Python backend. My name is Dario I am twenty years old So this is my text editor and I am testing what will happen as I actually reach the limit here. Hey it actually takes quite long to","styles":{}}],"children":[]},{"id":"block-3-blank-line","type":"paragraph","props":{"backgroundColor":"default","textColor":"default","textAlignment":"left"},"content":[{"type":"text","text":"So now if I write here in theory it should save it","styles":{}}],"children":[]},{"id":"block-4-next-heading","type":"heading","props":{"backgroundColor":"default","textColor":"default","textAlignment":"left","level":1,"isToggleable":false},"content":[{"type":"text","text":"Next","styles":{}}],"children":[]},{"id":"block-5-next-text","type":"paragraph","props":{"backgroundColor":"default","textColor":"default","textAlignment":"left"},"content":[{"type":"text","text":"More text.","styles":{}}],"children":[]},{"id":"55dc83ea-be1f-4fa3-b561-efa8524d8af9","type":"paragraph","props":{"backgroundColor":"default","textColor":"default","textAlignment":"left"},"content":[],"children":[]}]
+[
+  {
+    "id": "block-1-intro-heading",
+    "type": "heading",
+    "props": {
+      "textAlignment": "left",
+      "textColor": "default",
+      "level": 1,
+      "llmStatus": "draft",
+      "warningMessage": ""
+    },
+    "content": [{ "type": "text", "text": "Intro", "styles": {} }],
+    "children": []
+  },
+  {
+    "id": "block-2-intro-text",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Hello from Python backend. My name is Dario I am twenty years old So this is my text editor and I am testing what will happen as I actually reach the limit here. Hey it actually takes quite long to",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-3-blank-line",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "So now if I write here in theory it should save it",
+        "styles": {}
+      }
+    ],
+    "children": []
+  },
+  {
+    "id": "block-4-next-heading",
+    "type": "heading",
+    "props": {
+      "textAlignment": "left",
+      "textColor": "default",
+      "level": 1,
+      "llmStatus": "draft",
+      "warningMessage": ""
+    },
+    "content": [{ "type": "text", "text": "Next", "styles": {} }],
+    "children": []
+  },
+  {
+    "id": "block-5-next-text",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [{ "type": "text", "text": "More text.", "styles": {} }],
+    "children": []
+  },
+  {
+    "id": "55dc83ea-be1f-4fa3-b561-efa8524d8af9",
+    "type": "heading",
+    "props": {
+      "textAlignment": "left",
+      "textColor": "default",
+      "level": 1,
+      "llmStatus": "draft",
+      "warningMessage": ""
+    },
+    "content": [{ "type": "text", "text": "Title 1", "styles": {} }],
+    "children": []
+  },
+  {
+    "id": "0b52dac4-78d2-4649-8c5f-482f691d0bd7",
+    "type": "heading",
+    "props": {
+      "textAlignment": "left",
+      "textColor": "default",
+      "level": 1,
+      "llmStatus": "draft",
+      "warningMessage": ""
+    },
+    "content": [{ "type": "text", "text": "text", "styles": {} }],
+    "children": []
+  },
+  {
+    "id": "101628bb-a31c-426e-9984-e3fde937b6b8",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [
+      { "type": "text", "text": "this is a test paragraph", "styles": {} }
+    ],
+    "children": []
+  },
+  {
+    "id": "2b87787d-5523-4dbd-982a-f4729b4f7bc1",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [{ "type": "text", "text": "# Try now", "styles": {} }],
+    "children": []
+  },
+  {
+    "id": "ef9927b4-cc7d-4c02-b7e4-5146b1841119",
+    "type": "paragraph",
+    "props": {
+      "backgroundColor": "default",
+      "textColor": "default",
+      "textAlignment": "left"
+    },
+    "content": [],
+    "children": []
+  }
+]
