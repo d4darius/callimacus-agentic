@@ -172,6 +172,7 @@ async def extract_image(doc_id: str, par_id: str, image: Any):
     # RETURNS:
     A dict containing the status of the output and a description of the image just inserted
     """
+    pass
 
 # Augment the LLM with tools
 tools = [ask_question, create_paragraph] # add extract_image
@@ -187,22 +188,17 @@ def update_memory(store: BaseStore, namespace: tuple, messages: list):
 
     logger.info(f"Updating memory profile for {namespace}...")
     
-    # 1. Get the existing memory from the store
     existing_item = store.get(namespace, "user_preferences")
-    # Handle the case where the profile doesn't exist yet
     current_profile = existing_item.value if existing_item else "No preferences yet."
 
-    # 2. Use the dedicated memory model to parse the update
     llm = memory_model.with_structured_output(UserPreferences)
     
-    # 3. Invoke the LLM with the specific memory instructions
     result = llm.invoke(
         [
             {"role": "system", "content": MEMORY_UPDATE_INSTRUCTIONS.format(current_profile=current_profile)},
         ] + messages
     )
     
-    # 4. Save the updated memory back to the store
     store.put(namespace, "user_preferences", result.user_preferences)
     logger.info(f"Memory successfully updated: {result.user_preferences}")
 
