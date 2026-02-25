@@ -13,7 +13,7 @@ logging.basicConfig(
 logger = logging.getLogger("LearningAssistantAgent")
 
 # Define where the global memory lives (we can put it in the context folder)
-MEMORY_FILE_PATH = os.path.join(os.path.dirname(__file__), "context", "global_memory.json")
+MEMORY_FILE_PATH = os.path.join(os.path.dirname(__file__), "../context", "global_memory.json")
 
 def load_global_memory(store: BaseStore):
     """Loads memory from disk, or creates it using defaults if it doesn't exist."""
