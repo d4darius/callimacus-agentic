@@ -10,6 +10,11 @@ interface DocumentProps {
   docId: string;
 }
 
+interface InterruptData {
+  headingId: string;
+  question: string;
+}
+
 /* HELPER FUNCTIONS */
 async function fetchDocContent(docId: string): Promise<string> {
   const res = await fetch(
@@ -42,6 +47,14 @@ function Document({ docname, docId }: DocumentProps) {
     null,
   );
   const [error, setError] = useState<string>("");
+  const [interruptData, setInterruptData] = useState<InterruptData | null>(
+    null,
+  );
+  const [hitlInput, setHitlInput] = useState<string>("");
+  const [interruptPos, setInterruptPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   const saveAbortRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
@@ -140,6 +153,21 @@ function Document({ docname, docId }: DocumentProps) {
     };
   }, [docId]);
 
+  // HELPER: Reload Editor Sync (Fetches backend AST changes)
+  const syncEditorWithBackend = async () => {
+    if (!editor) return;
+    try {
+      const rawData = await fetchDocContent(docId);
+      const parsed = JSON.parse(rawData);
+      if (Array.isArray(parsed)) {
+        // Hot-swap the blocks to reflect the AI's formatting
+        editor.replaceBlocks(editor.document, parsed);
+      }
+    } catch (err) {
+      console.error("Failed to sync AST from backend", err);
+    }
+  };
+
   // EXTERNAL CONTEXT INJECTOR: Your external audio/ocr components will call this to secretly dump data into the active bucket
   const injectBackgroundContext = (type: "audio" | "ocr", rawText: string) => {
     const activeId = activeHeadingRef.current;
@@ -154,85 +182,144 @@ function Document({ docname, docId }: DocumentProps) {
   };
 
   // 2) SEND TO LLM
-  // 2) SEND TO LLM (WITH DUMMY DEBUGGER)
   const sendSectionToLLM = async (headingId: string) => {
     const registerEntry = sectionRegister.current[headingId];
-
     if (!registerEntry || registerEntry.status !== "draft") return;
-    registerEntry.status = "review";
 
+    registerEntry.status = "review";
     if (editor) {
       editor.updateBlock(headingId, { props: { backgroundColor: "blue" } });
     }
 
     const typedText = registerEntry.blocksPayload
-      .map((block) => {
-        if (Array.isArray(block.content)) {
-          return block.content.map((c: any) => c.text).join("");
-        }
-        return "";
-      })
-      .join("\n");
+      .map((block) =>
+        Array.isArray(block.content)
+          ? block.content.map((c: any) => c.text).join("")
+          : "",
+      )
+      .join("\n\n");
 
-    const audioText = registerEntry.audioContext.join(" ");
-    const ocrText = registerEntry.ocrContext.join(" ");
-
-    const payloadForPython = {
-      heading_id: headingId,
-      typed_notes: typedText,
-      audio_transcript: audioText,
-      ocr_data: ocrText,
+    const payload = {
+      doc_id: docname,
+      par_id: headingId,
+      audio: registerEntry.audioContext.join(" "),
+      ocr: registerEntry.ocrContext.join(" "),
+      notes: typedText,
     };
 
-    console.log(
-      `[DUMMY API] Payload prepared for ${headingId}:`,
-      payloadForPython,
-    );
+    console.log(`[API CALL] Processing payload for ${headingId}...`);
 
-    // --- DUMMY LLM SIMULATION ---
-    setTimeout(() => {
-      if (!editor) return;
+    try {
+      const res = await fetch("http://localhost:8000/api/llm/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
 
-      // Simulate an 80% chance of success, 20% chance of a warning
-      const isSuccess = Math.random() > 0.2;
+      if (data.status === "paused") {
+        console.log(`[HITL INTERRUPT] Agent has a question for ${headingId}`);
+        registerEntry.status = "warning";
+        if (editor)
+          editor.updateBlock(headingId, {
+            props: { backgroundColor: "orange" },
+          });
 
-      if (isSuccess) {
-        console.log(`[DUMMY API] Success for ${headingId}`);
+        // Trigger the UI Modal!
+        setInterruptData({
+          headingId,
+          question:
+            typeof data.interrupt === "string"
+              ? data.interrupt
+              : JSON.stringify(data.interrupt),
+        });
+      } else if (data.status === "completed") {
+        console.log(`[SUCCESS] Agent finished generating for ${headingId}`);
         registerEntry.status = "processed";
-        editor.updateBlock(headingId, { props: { backgroundColor: "green" } });
 
-        // Fade the green back to default after 2 seconds for a clean UI
-        setTimeout(() => {
-          const currentBlock = editor.getBlock(headingId);
-          if (currentBlock && currentBlock.props.backgroundColor === "green") {
+        // Pull the fresh AST array from the backend and update the UI
+        await syncEditorWithBackend();
+
+        // Flash green briefly to indicate success
+        if (editor) {
+          editor.updateBlock(headingId, {
+            props: { backgroundColor: "green" },
+          });
+          setTimeout(() => {
             editor.updateBlock(headingId, {
               props: { backgroundColor: "default" },
             });
-          }
-        }, 2000);
-      } else {
-        console.log(`[DUMMY API] Warning generated for ${headingId}`);
-        registerEntry.status = "warning";
-        editor.updateBlock(headingId, { props: { backgroundColor: "red" } });
-
-        // Insert a mock warning message directly below the heading
-        editor.insertBlocks(
-          [
-            {
-              type: "paragraph",
-              content:
-                "⚠️ DUMMY WARNING: The LLM thinks you missed a detail here.",
-            },
-          ],
-          headingId,
-          "after",
-        );
+          }, 2000);
+        }
       }
 
-      // Clear the multimodal arrays so they don't double-send on the next edit
+      // Clear multimodal queues
       registerEntry.audioContext = [];
       registerEntry.ocrContext = [];
-    }, 7000); // 3-second fake network delay
+    } catch (error) {
+      console.error("LLM Process Error:", error);
+      registerEntry.status = "draft"; // Revert so it can try again later
+      if (editor)
+        editor.updateBlock(headingId, {
+          props: { backgroundColor: "default" },
+        });
+    }
+  };
+
+  // 3) RESUME AGENT AFTER USER ANSWERS
+  const handleHitlSubmit = async () => {
+    if (!interruptData || !hitlInput.trim()) return;
+
+    const { headingId } = interruptData;
+    const answer = hitlInput;
+
+    // Optimistic UI update
+    setInterruptData(null);
+    setHitlInput("");
+    if (editor)
+      editor.updateBlock(headingId, { props: { backgroundColor: "blue" } });
+
+    try {
+      const res = await fetch("http://localhost:8000/api/llm/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doc_id: docname,
+          par_id: headingId,
+          answer: answer,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.status === "paused") {
+        // Asked a follow up question
+        if (editor)
+          editor.updateBlock(headingId, {
+            props: { backgroundColor: "orange" },
+          });
+        setInterruptData({ headingId, question: data.interrupt });
+      } else if (data.status === "completed") {
+        sectionRegister.current[headingId].status = "processed";
+        await syncEditorWithBackend();
+
+        if (editor) {
+          editor.updateBlock(headingId, {
+            props: { backgroundColor: "green" },
+          });
+          setTimeout(
+            () =>
+              editor.updateBlock(headingId, {
+                props: { backgroundColor: "default" },
+              }),
+            2000,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("LLM Resume Error:", error);
+      if (editor)
+        editor.updateBlock(headingId, { props: { backgroundColor: "red" } });
+    }
   };
 
   // Helper: Finds out which bucket the cursor is currently inside
@@ -362,6 +449,26 @@ function Document({ docname, docId }: DocumentProps) {
     }, 1000);
   };
 
+  // HELPER: Auto-position the HITL popup next to the active block
+  useEffect(() => {
+    if (interruptData) {
+      // Find the specific BlockNote DOM element
+      const blockEl = document.querySelector(
+        `[data-id="${interruptData.headingId}"]`,
+      );
+      if (blockEl) {
+        const rect = blockEl.getBoundingClientRect();
+        // Position it right below the heading block, slightly indented
+        setInterruptPos({
+          top: rect.bottom + window.scrollY + 10,
+          left: rect.left + window.scrollX + 20,
+        });
+      }
+    } else {
+      setInterruptPos(null);
+    }
+  }, [interruptData]);
+
   if (error)
     return (
       <div className="empty-state-container">
@@ -384,6 +491,107 @@ function Document({ docname, docId }: DocumentProps) {
         onChange={handleEditorChange}
         onSelectionChange={manageTimers}
       />
+
+      {/* NEW: CONTEXTUAL HITL QUESTION POPOVER */}
+      {interruptData && (
+        <div
+          style={{
+            position: "absolute",
+            // Use calculated position, or fallback to center if DOM node wasn't found
+            top: interruptPos ? `${interruptPos.top}px` : "50%",
+            left: interruptPos ? `${interruptPos.left}px` : "50%",
+            transform: interruptPos ? "none" : "translate(-50%, -50%)",
+            background: "#2a2a2a",
+            padding: "16px",
+            borderRadius: "8px",
+            borderLeft: "4px solid #ff922b", // Cleaner, less intrusive border
+            boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+            zIndex: 10000,
+            width: "350px",
+            color: "#e0e0e0",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "8px",
+            }}
+          >
+            <span style={{ fontSize: "16px" }}>🤖</span>
+            <h4 style={{ margin: 0, color: "#ff922b", fontSize: "14px" }}>
+              Clarification Needed
+            </h4>
+          </div>
+
+          <p
+            style={{
+              margin: "0 0 12px 0",
+              fontSize: "13px",
+              lineHeight: "1.4",
+            }}
+          >
+            {interruptData.question}
+          </p>
+
+          <input
+            type="text"
+            value={hitlInput}
+            onChange={(e) => setHitlInput(e.target.value)}
+            placeholder="Type your answer..."
+            autoFocus // Automatically focuses the input so you can just type!
+            style={{
+              width: "100%",
+              padding: "8px",
+              borderRadius: "4px",
+              border: "1px solid #444",
+              background: "#1e1e1e",
+              color: "white",
+              marginBottom: "12px",
+              boxSizing: "border-box",
+              fontSize: "13px",
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleHitlSubmit();
+            }}
+          />
+
+          <div
+            style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}
+          >
+            <button
+              onClick={() => setInterruptData(null)}
+              style={{
+                padding: "6px 12px",
+                fontSize: "12px",
+                background: "transparent",
+                border: "1px solid #555",
+                color: "#aaa",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleHitlSubmit}
+              style={{
+                padding: "6px 12px",
+                fontSize: "12px",
+                background: "#ff922b",
+                border: "none",
+                color: "#111",
+                fontWeight: "bold",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Resume
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* FLOATING DEBUGGER PANEL */}
       <div
