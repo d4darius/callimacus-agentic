@@ -1,11 +1,57 @@
+import logging
+import re
+import json
+import uvicorn
+from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from pathlib import Path
-import re
 
-app = FastAPI()
+# --- LANGGRAPH IMPORTS ---
+from langchain.messages import HumanMessage
+from langgraph.types import Command
+from document import Document
+from learning_assistant.learning_assistant import (
+    agent, 
+    DOCUMENT_STORAGE, 
+    in_memory_store,
+    update_memory
+)
+from learning_assistant.utils import (
+    load_global_memory, 
+    save_global_memory
+)
+from learning_assistant.prompts import agent_user_prompt
+
+# --- CONFIG & LOGGING ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger("CallimacusAPI")
+
+DOCS_DIR = Path(__file__).resolve().parent / "docs"
+MEDIA_DIR = Path(__file__).resolve().parent / "media"
+CONTEXT_DIR = Path(__file__).resolve().parent / "context"
+
+# --- LIFESPAN (MEMORY PERSISTENCE) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Starting up Callimacus FastAPI Server...")
+    # Load cross-thread preferences from JSON to RAM
+    load_global_memory(in_memory_store)
+    
+    yield # Server is running...
+    
+    logger.info("🛑 Shutting down server. Flushing RAM memory to disk...")
+    # Save cross-thread preferences from RAM to JSON
+    save_global_memory(in_memory_store)
+    logger.info("✅ Server shutdown complete. Memory safely persisted.")
+
+app = FastAPI(title="Callimacus Agent API", lifespan=lifespan)
 
 # Allow your frontend dev server to call this API (tighten in prod)
 app.add_middleware(
@@ -16,9 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DOCS_DIR = Path(__file__).resolve().parent / "docs"
-MEDIA_DIR = Path(__file__).resolve().parent / "media"
-
+# --- UTILS ---
 def safe_doc_path(doc_id: str) -> Path:
     # Prevent path traversal; only allow simple ids like: example-1_test
     safe = re.sub(r"[^a-zA-Z0-9_-]", "", doc_id)
@@ -26,6 +70,10 @@ def safe_doc_path(doc_id: str) -> Path:
 
 def safe_id(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "", value)
+
+# ------------------------------------------
+# FILE SYSTEM & DOCUMENT ENDPOINTS
+# ------------------------------------------
 
 # --- SIDEBAR ENDPOINTS ---
 class RenameUpdate(BaseModel):
@@ -99,3 +147,120 @@ def get_pdf(pdf_id: str):
 
     # Inline display in browser
     return FileResponse(path, media_type="application/pdf", filename=f"{safe}.pdf", content_disposition_type="inline")
+
+# ==========================================
+# 🧠 AI AGENT ENDPOINTS (LANGGRAPH)
+# ==========================================
+
+class ProcessPayload(BaseModel):
+    doc_id: str
+    par_id: str
+    audio: str = ""
+    ocr: str = ""
+    notes: str = ""
+
+@app.post("/api/llm/process")
+async def process_paragraph(payload: ProcessPayload):
+    """Triggers the LangGraph agent to analyze sources and either compile or pause for HITL."""
+    
+    # 1. Ensure document is loaded in storage
+    if payload.doc_id not in DOCUMENT_STORAGE:
+        DOCUMENT_STORAGE[payload.doc_id] = Document(payload.doc_id)
+    doc = DOCUMENT_STORAGE[payload.doc_id]
+    
+    # 2. Update the AI Context safely
+    if payload.par_id not in doc.paragraphs:
+        doc.paragraphs[payload.par_id] = {}
+        
+    doc.paragraphs[payload.par_id]["audio"] = payload.audio
+    doc.paragraphs[payload.par_id]["ocr"] = payload.ocr
+    doc.paragraphs[payload.par_id]["notes"] = payload.notes
+    doc._save_context()
+
+    # 3. Setup LangGraph Thread
+    thread_id = f"{payload.doc_id}_{payload.par_id}"
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    agent_prompt = agent_user_prompt.format(
+        doc_id = payload.doc_id,
+        par_id = payload.par_id,
+        audio = payload.audio,
+        ocr = payload.ocr,
+        notes = payload.notes
+    )
+
+    initial_state = {
+        "messages": [HumanMessage(content=agent_prompt)],
+        "doc_id": payload.doc_id,
+        "par_id": payload.par_id
+    }
+
+    # 4. Run the Agent
+    await agent.ainvoke(initial_state, config)
+
+    # 5. Check if Agent Paused (HITL)
+    state = agent.get_state(config)
+    if state.tasks and state.tasks[0].interrupts:
+        interrupt_payload = state.tasks[0].interrupts[0].value
+        return {"status": "paused", "interrupt": interrupt_payload}
+
+    return {"status": "completed", "message": "Paragraph successfully generated and synced."}
+
+
+class ResumePayload(BaseModel):
+    doc_id: str
+    par_id: str
+    answer: str
+
+@app.post("/api/llm/resume")
+async def resume_agent(payload: ResumePayload):
+    """Resumes a paused graph after the user answers the clarification question."""
+    
+    thread_id = f"{payload.doc_id}_{payload.par_id}"
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    user_response = {
+        "type": "response",
+        "args": payload.answer
+    }
+    
+    # Resume the graph execution
+    await agent.ainvoke(Command(resume=user_response), config)
+    
+    # Check state just in case it asked another question
+    state = agent.get_state(config)
+    if state.tasks and state.tasks[0].interrupts:
+        interrupt_payload = state.tasks[0].interrupts[0].value
+        return {"status": "paused", "interrupt": interrupt_payload}
+        
+    return {"status": "completed", "message": "Conflict resolved and paragraph updated."}
+
+
+class RequestPayload(BaseModel):
+    doc_id: str
+    par_id: str
+    instruction: str # e.g., "Rewrite this to be bullet points"
+
+@app.post("/api/llm/request")
+async def request_rewrite(payload: RequestPayload):
+    """Updates the Compiler's global memory and forces a paragraph rewrite."""
+    
+    # 1. Learn from the request! Target the Compiler Profile so it learns stylistic choices.
+    update_memory(
+        in_memory_store, 
+        ("learning_assistant", "compiler_profile"), 
+        [{"role": "user", "content": f"User requested a formatting/style change: {payload.instruction}"}]
+    )
+    
+    # 2. Tell the graph to regenerate the paragraph
+    thread_id = f"{payload.doc_id}_{payload.par_id}"
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    rewrite_prompt = f"The user requested a rewrite for this paragraph with these specific instructions: '{payload.instruction}'. Please invoke 'create_paragraph' immediately to regenerate and apply these changes."
+    
+    await agent.ainvoke({"messages": [HumanMessage(content=rewrite_prompt)]}, config)
+    
+    return {"status": "completed", "message": "Memory updated and paragraph rewritten."}
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -73,6 +73,20 @@ When processing three simultaneous educational inputs:
 </ Memory and Continuity Guidelines >
 """
 
+agent_user_prompt="""
+Please process the following educational inputs. 
+If there is a conflict, use ask_question. If they are coherent, use create_paragraph.
+    
+[META DATA]
+doc_id: {doc_id}
+par_id: {par_id}
+    
+[SOURCES]
+Audio: {audio}
+OCR: {ocr}
+Notes: {notes}
+"""
+
 tools_prompt="""
 - ask_question: ask a question to the user to clarify ambiguities or solve disputes between contradicting sources.
 - create_paragraph: combine the sources together into a finalized paragraph and store it to the document.
