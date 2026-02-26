@@ -597,6 +597,15 @@ function Document({ docname, docId }: DocumentProps) {
         !registerEntry ||
         registerEntry.contentSnapshot !== currentContentStr
       ) {
+        // Protect "processed" paragraphs: If the AI already finished this section, the user is just doing manual touch-ups.
+        if (registerEntry && registerEntry.status === "processed") {
+          sectionRegister.current[bucket.headingId].contentSnapshot =
+            currentContentStr;
+          sectionRegister.current[bucket.headingId].blocksPayload =
+            bucket.blocks;
+          return; // Skip the rest of the loop so it doesn't become a draft!
+        }
+
         // Reset visual background if they edit a processed/warning block
         const headingBlock = editor.getBlock(bucket.headingId);
         if (
