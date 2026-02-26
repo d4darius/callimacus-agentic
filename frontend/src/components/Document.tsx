@@ -10,11 +10,6 @@ interface DocumentProps {
   docId: string;
 }
 
-interface InterruptData {
-  headingId: string;
-  question: string;
-}
-
 /* HELPER FUNCTIONS */
 async function fetchDocContent(docId: string): Promise<string> {
   const res = await fetch(
@@ -47,17 +42,19 @@ function Document({ docname, docId }: DocumentProps) {
     null,
   );
   const [error, setError] = useState<string>("");
-  const [interruptData, setInterruptData] = useState<InterruptData | null>(
-    null,
-  );
+  const [pendingQuestions, setPendingQuestions] = useState<
+    Record<string, string>
+  >({}); // Dictionary to store pending questions by headingId
+  // HITL State popup
+  const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null); // Active/Inactive
+  const [indicatorPositions, setIndicatorPositions] = useState<
+    Record<string, { top: number; left: number }>
+  >({}); // Store positions for each question
   const [hitlInput, setHitlInput] = useState<string>("");
-  const [interruptPos, setInterruptPos] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
 
   const saveAbortRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null); // Reference to the main container so we can calculate relative coordinates for the yellow dots
 
   // THE SECTION REGISTER
   const sectionRegister = useRef<
@@ -153,6 +150,36 @@ function Document({ docname, docId }: DocumentProps) {
     };
   }, [docId]);
 
+  // HELPER: Calculate coordinates for the yellow indicator dots
+  useEffect(() => {
+    const updatePositions = () => {
+      if (!containerRef.current) return;
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newPositions: Record<string, { top: number; left: number }> = {};
+
+      Object.keys(pendingQuestions).forEach((headingId) => {
+        const blockEl = document.querySelector(`[data-id="${headingId}"]`);
+        if (blockEl) {
+          const blockRect = blockEl.getBoundingClientRect();
+          newPositions[headingId] = {
+            // Calculate position relative to our wrapper div
+            top: blockRect.top - containerRect.top + blockRect.height / 2 - 11, // Center vertically, adjust for dot size
+            left: blockRect.left - containerRect.left - 35, // Push it 35px into the left margin
+          };
+        }
+      });
+      setIndicatorPositions(newPositions);
+    };
+
+    // Run calculation
+    updatePositions();
+
+    // Recalculate if the window resizes
+    window.addEventListener("resize", updatePositions);
+    return () => window.removeEventListener("resize", updatePositions);
+  }, [pendingQuestions, editor?.document]);
+
   // HELPER: Reload Editor Sync (Fetches backend AST changes)
   const syncEditorWithBackend = async () => {
     if (!editor) return;
@@ -165,6 +192,20 @@ function Document({ docname, docId }: DocumentProps) {
       }
     } catch (err) {
       console.error("Failed to sync AST from backend", err);
+    }
+  };
+
+  // HELPER: Safely extract the question from the LangGraph interrupt payload
+  const parseInterruptQuestion = (interruptData: any): string => {
+    if (!interruptData) return "Clarification needed.";
+    try {
+      const parsed =
+        typeof interruptData === "string"
+          ? JSON.parse(interruptData)
+          : interruptData;
+      return parsed.question || JSON.stringify(parsed);
+    } catch (e) {
+      return String(interruptData);
     }
   };
 
@@ -225,14 +266,9 @@ function Document({ docname, docId }: DocumentProps) {
             props: { backgroundColor: "orange" },
           });
 
-        // Trigger the UI Modal!
-        setInterruptData({
-          headingId,
-          question:
-            typeof data.interrupt === "string"
-              ? data.interrupt
-              : JSON.stringify(data.interrupt),
-        });
+        // Add to the pending questions dictionary to show the yellow dot and store the question
+        const questionText = parseInterruptQuestion(data.interrupt);
+        setPendingQuestions((prev) => ({ ...prev, [headingId]: questionText }));
       } else if (data.status === "completed") {
         console.log(`[SUCCESS] Agent finished generating for ${headingId}`);
         registerEntry.status = "processed";
@@ -251,6 +287,11 @@ function Document({ docname, docId }: DocumentProps) {
             });
           }, 2000);
         }
+        setPendingQuestions((prev) => {
+          const updated = { ...prev };
+          delete updated[headingId];
+          return updated;
+        });
       }
 
       // Clear multimodal queues
@@ -268,14 +309,19 @@ function Document({ docname, docId }: DocumentProps) {
 
   // 3) RESUME AGENT AFTER USER ANSWERS
   const handleHitlSubmit = async () => {
-    if (!interruptData || !hitlInput.trim()) return;
+    if (!activeQuestionId || !hitlInput.trim()) return;
 
-    const { headingId } = interruptData;
+    const headingId = activeQuestionId;
     const answer = hitlInput;
 
-    // Optimistic UI update
-    setInterruptData(null);
+    // Optimistic UI update: Close popover, clear input, remove from queue
+    setActiveQuestionId(null);
     setHitlInput("");
+    setPendingQuestions((prev) => {
+      const updated = { ...prev };
+      delete updated[headingId];
+      return updated;
+    });
     if (editor)
       editor.updateBlock(headingId, { props: { backgroundColor: "blue" } });
 
@@ -297,7 +343,10 @@ function Document({ docname, docId }: DocumentProps) {
           editor.updateBlock(headingId, {
             props: { backgroundColor: "orange" },
           });
-        setInterruptData({ headingId, question: data.interrupt });
+        setPendingQuestions((prev) => ({
+          ...prev,
+          [headingId]: parseInterruptQuestion(data.interrupt),
+        }));
       } else if (data.status === "completed") {
         sectionRegister.current[headingId].status = "processed";
         await syncEditorWithBackend();
@@ -449,26 +498,6 @@ function Document({ docname, docId }: DocumentProps) {
     }, 1000);
   };
 
-  // HELPER: Auto-position the HITL popup next to the active block
-  useEffect(() => {
-    if (interruptData) {
-      // Find the specific BlockNote DOM element
-      const blockEl = document.querySelector(
-        `[data-id="${interruptData.headingId}"]`,
-      );
-      if (blockEl) {
-        const rect = blockEl.getBoundingClientRect();
-        // Position it right below the heading block, slightly indented
-        setInterruptPos({
-          top: rect.bottom + window.scrollY + 10,
-          left: rect.left + window.scrollX + 20,
-        });
-      }
-    } else {
-      setInterruptPos(null);
-    }
-  }, [interruptData]);
-
   if (error)
     return (
       <div className="empty-state-container">
@@ -483,7 +512,11 @@ function Document({ docname, docId }: DocumentProps) {
     );
 
   return (
-    <div className="fileContent" style={{ position: "relative" }}>
+    <div
+      className="fileContent"
+      style={{ position: "relative" }}
+      ref={containerRef}
+    >
       <h1>{docname}</h1>
       <BlockNoteView
         editor={editor}
@@ -492,20 +525,62 @@ function Document({ docname, docId }: DocumentProps) {
         onSelectionChange={manageTimers}
       />
 
-      {/* NEW: CONTEXTUAL HITL QUESTION POPOVER */}
-      {interruptData && (
+      {/* RENDER THE YELLOW INDICATOR DOTS FOR EACH PENDING QUESTION */}
+      {Object.keys(pendingQuestions).map((headingId) => {
+        const pos = indicatorPositions[headingId];
+        if (!pos) return null;
+
+        const isActive = activeQuestionId === headingId;
+
+        return (
+          <div
+            key={headingId}
+            onClick={() => {
+              // Toggle the popover on/off when clicking the dot
+              setActiveQuestionId(isActive ? null : headingId);
+              if (!isActive) setHitlInput(""); // Clear input when opening a new one
+            }}
+            style={{
+              position: "absolute",
+              top: `${pos.top}px`,
+              left: `${pos.left}px`,
+              width: "22px",
+              height: "22px",
+              backgroundColor: isActive ? "#ff922b" : "#fcc419", // Darker orange if open
+              borderRadius: "50%",
+              cursor: "pointer",
+              boxShadow: isActive
+                ? "0 0 10px rgba(255,146,43,0.5)"
+                : "0 2px 6px rgba(0,0,0,0.4)",
+              zIndex: 100,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#222",
+              fontWeight: "bold",
+              fontSize: "14px",
+              transition: "transform 0.1s ease-in-out",
+              transform: isActive ? "scale(1.1)" : "scale(1)",
+            }}
+            title="Clarification Needed"
+          >
+            ?
+          </div>
+        );
+      })}
+
+      {/* RENDER THE POPOVER FOR THE ACTIVELY SELECTED QUESTION */}
+      {activeQuestionId && indicatorPositions[activeQuestionId] && (
         <div
           style={{
             position: "absolute",
-            // Use calculated position, or fallback to center if DOM node wasn't found
-            top: interruptPos ? `${interruptPos.top}px` : "50%",
-            left: interruptPos ? `${interruptPos.left}px` : "50%",
-            transform: interruptPos ? "none" : "translate(-50%, -50%)",
+            top: `${indicatorPositions[activeQuestionId].top + 30}px`, // Place right below the dot
+            left: `${indicatorPositions[activeQuestionId].left}px`,
             background: "#2a2a2a",
             padding: "16px",
             borderRadius: "8px",
-            borderLeft: "4px solid #ff922b", // Cleaner, less intrusive border
-            boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+            borderLeft: "4px solid #ff922b",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
             zIndex: 10000,
             width: "350px",
             color: "#e0e0e0",
@@ -519,7 +594,6 @@ function Document({ docname, docId }: DocumentProps) {
               marginBottom: "8px",
             }}
           >
-            <span style={{ fontSize: "16px" }}>🤖</span>
             <h4 style={{ margin: 0, color: "#ff922b", fontSize: "14px" }}>
               Clarification Needed
             </h4>
@@ -532,7 +606,7 @@ function Document({ docname, docId }: DocumentProps) {
               lineHeight: "1.4",
             }}
           >
-            {interruptData.question}
+            {pendingQuestions[activeQuestionId]}
           </p>
 
           <input
@@ -540,18 +614,8 @@ function Document({ docname, docId }: DocumentProps) {
             value={hitlInput}
             onChange={(e) => setHitlInput(e.target.value)}
             placeholder="Type your answer..."
-            autoFocus // Automatically focuses the input so you can just type!
-            style={{
-              width: "100%",
-              padding: "8px",
-              borderRadius: "4px",
-              border: "1px solid #444",
-              background: "#1e1e1e",
-              color: "white",
-              marginBottom: "12px",
-              boxSizing: "border-box",
-              fontSize: "13px",
-            }}
+            autoFocus
+            className="hitl-input"
             onKeyDown={(e) => {
               if (e.key === "Enter") handleHitlSubmit();
             }}
@@ -561,7 +625,7 @@ function Document({ docname, docId }: DocumentProps) {
             style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}
           >
             <button
-              onClick={() => setInterruptData(null)}
+              onClick={() => setActiveQuestionId(null)}
               style={{
                 padding: "6px 12px",
                 fontSize: "12px",
@@ -572,7 +636,7 @@ function Document({ docname, docId }: DocumentProps) {
                 cursor: "pointer",
               }}
             >
-              Cancel
+              Close
             </button>
             <button
               onClick={handleHitlSubmit}
@@ -587,7 +651,7 @@ function Document({ docname, docId }: DocumentProps) {
                 cursor: "pointer",
               }}
             >
-              Resume
+              Submit
             </button>
           </div>
         </div>
@@ -623,7 +687,7 @@ function Document({ docname, docId }: DocumentProps) {
           onClick={() =>
             injectBackgroundContext(
               "audio",
-              "[MOCK AUDIO: 'The professor mentioned 1945'] ",
+              "[MOCK AUDIO: 'So as I was saying, GDP stands for General Data Protection'] ",
             )
           }
           style={{
@@ -640,7 +704,10 @@ function Document({ docname, docId }: DocumentProps) {
         </button>
         <button
           onClick={() =>
-            injectBackgroundContext("ocr", "[MOCK OCR: 'Slide 4: GDP Growth'] ")
+            injectBackgroundContext(
+              "ocr",
+              "[MOCK OCR: 'Slide 4: GDP Growth, the GDP is the Gross Domestic Product (GDP)'] ",
+            )
           }
           style={{
             background: "#20c997",

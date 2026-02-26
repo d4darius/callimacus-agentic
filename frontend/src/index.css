@@ -327,3 +327,22 @@ EMPTY STATE / ERROR SCREEN
     border-left 0.3s ease,
     padding-left 0.3s ease;
 }
+
+/* QUESTION BOX */
+.hitl-input {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  background: #1e1e1e;
+  color: white;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+  font-size: 13px;
+  border: 1px solid #444;
+  outline: none; /* Kills the browser's default blue glow */
+  transition: border 0.2s ease-in-out;
+}
+
+.hitl-input:focus {
+  border: 1px solid white; /* Turns white only when actively typing */
+}
