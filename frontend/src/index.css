@@ -194,7 +194,7 @@ SIDEBAR
 
 .media-window.expanded {
   width: 45%;
-  min-width: 400px;
+  min-width: var(--mwd);
 }
 
 /* 

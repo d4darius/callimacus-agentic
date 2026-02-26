@@ -115,7 +115,7 @@ function Sidebar({ currentDocId, onSelectDocument }: SidebarProps) {
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <span className="workspace-name">Callimachus Note</span>
+        <span className="workspace-name">Notebook Repository</span>
         <button className="new-doc-button" onClick={handleCreateNew}>
           + New
         </button>

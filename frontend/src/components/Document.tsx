@@ -16,6 +16,7 @@ import "@blocknote/mantine/style.css";
 interface DocumentProps {
   docname: string;
   docId: string;
+  isSessionActive: boolean;
 }
 
 /* HELPER FUNCTIONS */
@@ -121,7 +122,7 @@ const CustomFormattingToolbar = (props: any) => (
 // MAIN DOCUMENT COMPONENT
 // ==========================================
 
-function Document({ docname, docId }: DocumentProps) {
+function Document({ docname, docId, isSessionActive }: DocumentProps) {
   const [editor, setEditor] = useState<BlockNoteEditor<any, any, any> | null>(
     null,
   );
@@ -158,6 +159,11 @@ function Document({ docname, docId }: DocumentProps) {
   >({});
 
   const activeHeadingRef = useRef<string>("doc-start");
+
+  // 0) MASTER SESSION TOGGLE
+  useEffect(() => {
+    manageTimers();
+  }, [isSessionActive]);
 
   // 1) ASYNC INITIALIZATION & LOAD
   useEffect(() => {
@@ -541,9 +547,19 @@ function Document({ docname, docId }: DocumentProps) {
   // Manages the start/stop of timers based on cursor focus
   const manageTimers = () => {
     const activeId = getActiveHeadingId();
-
-    // Update our funnel target for the Audio/OCR streams
     if (activeId) activeHeadingRef.current = activeId;
+
+    // Inactive session: Clear all timers so the user isn't pestered while they are not working
+    if (!isSessionActive) {
+      Object.keys(sectionRegister.current).forEach((headingId) => {
+        const entry = sectionRegister.current[headingId];
+        if (entry.timeoutId) {
+          window.clearTimeout(entry.timeoutId);
+          entry.timeoutId = undefined;
+        }
+      });
+      return;
+    }
 
     // Evaluate every bucket in our register
     Object.keys(sectionRegister.current).forEach((headingId) => {
