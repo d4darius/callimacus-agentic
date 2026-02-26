@@ -654,11 +654,11 @@ function Document({ docname, docId }: DocumentProps) {
     }, 1000);
   };
 
-  if (error)
+  if (error || docname === "")
     return (
       <div className="empty-state-container">
         <img src="src/assets/Logo_d4.png" className="grayscale-logo" />
-        <p className="empty-state-text">Document not found</p>
+        <p className="empty-state-text">Please open a notebook</p>
       </div>
     );
 

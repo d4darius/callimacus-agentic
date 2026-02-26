@@ -5,7 +5,8 @@ import MediaWindow from "./components/MediaWindow";
 
 function App() {
   // Tracking the currently open file
-  const [currentDocId, setCurrentDocId] = useState<string>("test.json");
+  const [currentDocId, setCurrentDocId] = useState<string>("");
+  const [isMediaExpanded, setIsMediaExpanded] = useState<boolean>(false);
 
   return (
     <div className="App wrap">
@@ -19,8 +20,10 @@ function App() {
           docId={currentDocId}
         />
       </div>
-      <div className="media-window">
-        <MediaWindow pdfId="test" />
+      <div
+        className={`media-window ${isMediaExpanded ? "expanded" : "collapsed"}`}
+      >
+        <MediaWindow onToggleExpand={setIsMediaExpanded} />
       </div>
     </div>
   );

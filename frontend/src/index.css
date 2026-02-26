@@ -176,10 +176,25 @@ SIDEBAR
 
 /* MEDIA WINDOW */
 .media-window {
-  width: var(--mwd);
   height: 100%;
   background-color: var(--bg-media);
   border-right: 1px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  padding: 16px;
+  box-sizing: border-box;
+  transition:
+    width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+    min-width 0.4s ease-in-out;
+}
+
+.media-window.collapsed {
+  width: 120px;
+  min-width: 120px;
+}
+
+.media-window.expanded {
+  width: 45%;
+  min-width: 400px;
 }
 
 /* 
@@ -192,6 +207,7 @@ DOCUMENT WINDOW
   /* Scroll only the document, not the whole page */
   overflow-y: auto;
   scroll-behavior: smooth;
+  transition: flex 0.4s ease-in-out;
 }
 
 /* Constrain width and center it like Notion */
