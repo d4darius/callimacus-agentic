@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
+import {
+  FormattingToolbarController,
+  FormattingToolbar,
+  BasicTextStyleButton,
+  BlockTypeSelect,
+  CreateLinkButton,
+  useBlockNoteEditor,
+} from "@blocknote/react";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 
@@ -37,6 +45,82 @@ async function saveDocContent(
   if (!res.ok) throw new Error(`Failed to save doc: ${docId}`);
 }
 
+// ==========================================
+// CUSTOM TOOLBAR COMPONENTS (STABLE)
+// ==========================================
+
+const RewriteToolbarButton = () => {
+  const editor = useBlockNoteEditor();
+
+  const handleRewriteClick = () => {
+    try {
+      const cursor = editor.getTextCursorPosition();
+      let currentHeading = "doc-start";
+
+      // Calculate which section the user is currently highlighting
+      for (const block of editor.document) {
+        if (block.type === "heading") currentHeading = block.id;
+        if (block.id === cursor.block.id) break;
+      }
+
+      // Fire a custom event to wake up the Document component's modal!
+      window.dispatchEvent(
+        new CustomEvent("openRewriteModal", { detail: currentHeading }),
+      );
+    } catch (e) {
+      console.warn("Could not find cursor position", e);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleRewriteClick}
+      style={{
+        background: "transparent",
+        border: "none",
+        color: "#a970ff",
+        fontWeight: "bold",
+        cursor: "pointer",
+        fontSize: "13px",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "0 8px",
+      }}
+    >
+      Rewrite
+    </button>
+  );
+};
+
+// The stable toolbar definition that BlockNote expects
+const CustomFormattingToolbar = (props: any) => (
+  <FormattingToolbar {...props}>
+    <BlockTypeSelect key={"blockTypeSelect"} />
+    <BasicTextStyleButton basicTextStyle={"bold"} key={"boldStyleButton"} />
+    <BasicTextStyleButton basicTextStyle={"italic"} key={"italicStyleButton"} />
+    <BasicTextStyleButton
+      basicTextStyle={"underline"}
+      key={"underlineStyleButton"}
+    />
+    <BasicTextStyleButton basicTextStyle={"strike"} key={"strikeStyleButton"} />
+    <CreateLinkButton key={"createLinkButton"} />
+    <div
+      style={{
+        width: "1px",
+        height: "24px",
+        background: "#555",
+        margin: "0 4px",
+      }}
+    />
+    <RewriteToolbarButton key={"rewriteButton"} />
+  </FormattingToolbar>
+);
+
+// ==========================================
+// MAIN DOCUMENT COMPONENT
+// ==========================================
+
 function Document({ docname, docId }: DocumentProps) {
   const [editor, setEditor] = useState<BlockNoteEditor<any, any, any> | null>(
     null,
@@ -51,6 +135,8 @@ function Document({ docname, docId }: DocumentProps) {
     Record<string, { top: number; left: number }>
   >({}); // Store positions for each question
   const [hitlInput, setHitlInput] = useState<string>("");
+  const [rewriteHeadingId, setRewriteHeadingId] = useState<string | null>(null);
+  const [rewriteInput, setRewriteInput] = useState<string>("");
 
   const saveAbortRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
@@ -208,6 +294,16 @@ function Document({ docname, docId }: DocumentProps) {
       return String(interruptData);
     }
   };
+
+  // HELPER: Listen for the custom Rewrite Button event
+  useEffect(() => {
+    const handleOpenRewrite = (e: any) => {
+      setRewriteHeadingId(e.detail);
+    };
+    window.addEventListener("openRewriteModal", handleOpenRewrite);
+    return () =>
+      window.removeEventListener("openRewriteModal", handleOpenRewrite);
+  }, []);
 
   // EXTERNAL CONTEXT INJECTOR: Your external audio/ocr components will call this to secretly dump data into the active bucket
   const injectBackgroundContext = (type: "audio" | "ocr", rawText: string) => {
@@ -371,6 +467,57 @@ function Document({ docname, docId }: DocumentProps) {
     }
   };
 
+  // 4) SEND REWRITE REQUEST TO AGENT
+  const handleRewriteSubmit = async () => {
+    if (!rewriteHeadingId || !rewriteInput.trim()) return;
+
+    const headingId = rewriteHeadingId;
+    const instruction = rewriteInput;
+
+    // Optimistic UI: Close input and show processing color
+    setRewriteHeadingId(null);
+    setRewriteInput("");
+    if (editor)
+      editor.updateBlock(headingId, { props: { backgroundColor: "blue" } });
+
+    try {
+      const res = await fetch("http://localhost:8000/api/llm/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doc_id: docname,
+          par_id: headingId,
+          instruction: instruction,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.status === "completed") {
+        console.log(`[SUCCESS] Paragraph ${headingId} rewritten.`);
+        // Update status, pull new AST, and flash green
+        sectionRegister.current[headingId].status = "processed";
+        await syncEditorWithBackend();
+
+        if (editor) {
+          editor.updateBlock(headingId, {
+            props: { backgroundColor: "green" },
+          });
+          setTimeout(
+            () =>
+              editor.updateBlock(headingId, {
+                props: { backgroundColor: "default" },
+              }),
+            2000,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("LLM Rewrite Error:", error);
+      if (editor)
+        editor.updateBlock(headingId, { props: { backgroundColor: "red" } });
+    }
+  };
+
   // Helper: Finds out which bucket the cursor is currently inside
   const getActiveHeadingId = () => {
     if (!editor) return "doc-start";
@@ -523,7 +670,89 @@ function Document({ docname, docId }: DocumentProps) {
         theme="dark"
         onChange={handleEditorChange}
         onSelectionChange={manageTimers}
-      />
+        formattingToolbar={false}
+      >
+        <FormattingToolbarController
+          formattingToolbar={CustomFormattingToolbar}
+        />
+      </BlockNoteView>
+      {/* REWRITE INSTRUCTION POPOVER */}
+      {rewriteHeadingId && (
+        <div
+          style={{
+            position: "fixed",
+            top: "20%", // Keep it high on the screen, out of the way of the text
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "#2a2a2a",
+            padding: "16px",
+            borderRadius: "8px",
+            borderTop: "4px solid #a970ff", // Purple accent for the AI Compiler
+            boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+            zIndex: 10000,
+            width: "400px",
+          }}
+        >
+          <h4
+            style={{
+              margin: "0 0 12px 0",
+              color: "#a970ff",
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            How should I rewrite this?
+          </h4>
+
+          <input
+            type="text"
+            value={rewriteInput}
+            onChange={(e) => setRewriteInput(e.target.value)}
+            placeholder="e.g., Make it bullet points, summarize it, fix the math..."
+            autoFocus
+            className="hitl-input" // Re-using our clean CSS class from earlier!
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleRewriteSubmit();
+            }}
+          />
+
+          <div
+            style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}
+          >
+            <button
+              onClick={() => setRewriteHeadingId(null)}
+              style={{
+                padding: "6px 12px",
+                fontSize: "12px",
+                background: "transparent",
+                border: "1px solid #555",
+                color: "#aaa",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleRewriteSubmit}
+              style={{
+                padding: "6px 12px",
+                fontSize: "12px",
+                background: "#a970ff",
+                border: "none",
+                color: "white",
+                fontWeight: "bold",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Regenerate
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* RENDER THE YELLOW INDICATOR DOTS FOR EACH PENDING QUESTION */}
       {Object.keys(pendingQuestions).map((headingId) => {
