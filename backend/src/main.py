@@ -2,9 +2,10 @@ import logging
 import re
 import json
 import uvicorn
+import fitz
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -148,9 +149,30 @@ def get_pdf(pdf_id: str):
     # Inline display in browser
     return FileResponse(path, media_type="application/pdf", filename=f"{safe}.pdf", content_disposition_type="inline")
 
-# ==========================================
-# 🧠 AI AGENT ENDPOINTS (LANGGRAPH)
-# ==========================================
+@app.post("/api/media/extract")
+async def extract_pdf_text(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        # Open the PDF directly from the uploaded bytes
+        doc = fitz.open(stream=content, filetype="pdf")
+        
+        pages_text = {}
+        for i in range(len(doc)):
+            # Extract text and replace heavy line-breaks with spaces for the LLM
+            raw_text = doc[i].get_text("text").replace('\n', ' ')
+            pages_text[str(i + 1)] = raw_text
+            
+        return {
+            "status": "completed",
+            "total_pages": len(doc),
+            "pages": pages_text
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# ------------------------------------------
+# AI AGENT ENDPOINTS (LANGGRAPH)
+# ------------------------------------------
 
 class ProcessPayload(BaseModel):
     doc_id: str

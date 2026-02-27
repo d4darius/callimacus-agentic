@@ -157,8 +157,10 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       }
     >
   >({});
-
+  // ACTIVE BUCKET TRACKER
   const activeHeadingRef = useRef<string>("doc-start");
+  // UNBOUNDED BUFFER: to be flushed into paragraph as soon as we write in one
+  const unassignedPagesRef = useRef<string[]>([]);
 
   // 0) MASTER SESSION TOGGLE
   useEffect(() => {
@@ -311,6 +313,32 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       window.removeEventListener("openRewriteModal", handleOpenRewrite);
   }, []);
 
+  // HELPER: Listen for OCR Page Turn injections from the Media Window
+  useEffect(() => {
+    const handleInjectOcr = (e: any) => {
+      const formattedOcr = e.detail;
+      const activeId = activeHeadingRef.current;
+      const activeBucket = sectionRegister.current[activeId];
+
+      if (activeBucket) {
+        // A. The user already has an active paragraph bucket!
+        // Shove the page directly into this paragraph's memory. No limits.
+        if (!activeBucket.ocrContext.includes(formattedOcr)) {
+          activeBucket.ocrContext.push(formattedOcr);
+        }
+      } else {
+        // B. The bucket doesn't exist yet (they haven't started typing).
+        // Store it in the unbounded buffer until they do.
+        if (!unassignedPagesRef.current.includes(formattedOcr)) {
+          unassignedPagesRef.current.push(formattedOcr);
+        }
+      }
+    };
+
+    window.addEventListener("injectOcr", handleInjectOcr);
+    return () => window.removeEventListener("injectOcr", handleInjectOcr);
+  }, []);
+
   // EXTERNAL CONTEXT INJECTOR: Your external audio/ocr components will call this to secretly dump data into the active bucket
   const injectBackgroundContext = (type: "audio" | "ocr", rawText: string) => {
     const activeId = activeHeadingRef.current;
@@ -346,7 +374,10 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       doc_id: docname,
       par_id: headingId,
       audio: registerEntry.audioContext.join(" "),
-      ocr: registerEntry.ocrContext.join(" "),
+      ocr:
+        registerEntry.ocrContext.length > 0
+          ? `[PDF PAGE CONTENT]: ${registerEntry.ocrContext.join(" \n ")}`
+          : "",
       notes: typedText,
     };
 
@@ -590,6 +621,8 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
   const handleEditorChange = async () => {
     if (!editor) return;
 
+    const activeId = getActiveHeadingId();
+
     // --- STEP A: Build the Buckets ---
     const buckets: { headingId: string; blocks: any[] }[] = [];
     let currentBucket = { headingId: "doc-start", blocks: [] as any[] };
@@ -636,6 +669,20 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
 
         const existingAudio = registerEntry?.audioContext || [];
         const existingOcr = registerEntry?.ocrContext || [];
+
+        // Dump the unassigned buffer ONLY into the active paragraph!
+        if (
+          bucket.headingId === activeId &&
+          unassignedPagesRef.current.length > 0
+        ) {
+          unassignedPagesRef.current.forEach((pageOcr) => {
+            if (!existingOcr.includes(pageOcr)) {
+              existingOcr.push(pageOcr);
+            }
+          });
+          // CRITICAL: Clear the buffer so these pages don't bleed into the next heading!
+          unassignedPagesRef.current = [];
+        }
 
         // Update memory: Mark as draft, save new text, KEEP existing timer state
         sectionRegister.current[bucket.headingId] = {
@@ -911,7 +958,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         </div>
       )}
 
-      {/* FLOATING DEBUGGER PANEL */}
+      {/* FLOATING DEBUGGER PANEL 
       <div
         style={{
           position: "fixed",
@@ -975,7 +1022,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         >
           📷 Inject OCR
         </button>
-      </div>
+      </div> */}
     </div>
   );
 }

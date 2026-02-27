@@ -1,62 +1,148 @@
 import React, { useState, useRef } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
+// Pdf.js worker setup
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface MediaWindowProps {
   onToggleExpand: (isExpanded: boolean) => void;
 }
 
 function MediaWindow({ onToggleExpand }: MediaWindowProps) {
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  // We store the File object itself instead of a blob URL
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
+
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(0);
+  const [extractedPages, setExtractedPages] = useState<Record<string, string>>(
+    {},
+  );
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleContainerClick = () => {
-    fileInputRef.current?.click();
+    if (!isExtracting) fileInputRef.current?.click();
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0];
     if (file && file.type === "application/pdf") {
-      // 💡 THE TRICK: Append #toolbar=0 to natively hide the top bar!
-      const fileUrl = URL.createObjectURL(file) + "#toolbar=0&navpanes=0";
-      setPdfUrl(fileUrl);
-      onToggleExpand(true); // Tell App.tsx to expand the window
+      setIsExtracting(true);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const res = await fetch("http://localhost:8000/api/media/extract", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+
+        if (data.status === "completed") {
+          setExtractedPages(data.pages);
+          setTotalPages(data.total_pages);
+          setCurrentPage(1);
+          setPdfFile(file);
+          onToggleExpand(true);
+
+          window.dispatchEvent(
+            new CustomEvent("injectOcr", { detail: data.pages["1"] }),
+          );
+        }
+      } catch (err) {
+        console.error("Extraction failed", err);
+        alert("Failed to extract PDF text.");
+      } finally {
+        setIsExtracting(false);
+      }
     } else if (file) {
       alert("Please select a valid PDF file.");
     }
   };
 
   const closePdf = () => {
-    setPdfUrl(null);
-    onToggleExpand(false); // Tell App.tsx to shrink the window
+    setPdfFile(null);
+    setExtractedPages({});
+    setCurrentPage(1);
+    onToggleExpand(false);
   };
 
-  if (pdfUrl) {
+  const handlePageChange = (direction: "next" | "prev") => {
+    let newPage = currentPage;
+    if (direction === "next" && currentPage < totalPages) newPage += 1;
+    if (direction === "prev" && currentPage > 1) newPage -= 1;
+
+    if (newPage !== currentPage) {
+      setCurrentPage(newPage);
+      window.dispatchEvent(
+        new CustomEvent("injectOcr", {
+          detail: extractedPages[String(newPage)],
+        }),
+      );
+    }
+  };
+
+  if (pdfFile) {
     return (
-      <div style={{ width: "100%", height: "100%", position: "relative" }}>
-        <button
-          onClick={closePdf}
+      <div className="media-pdf-container">
+        {/* PDF VIEWPORT */}
+        <div
+          className="media-pdf-viewport"
           style={{
-            position: "absolute",
-            top: "8px",
-            right: "24px",
-            background: "#2a2a2a",
-            color: "#aaa",
-            border: "1px solid #444",
-            padding: "4px 8px",
-            borderRadius: "4px",
-            cursor: "pointer",
-            zIndex: 10,
-            fontSize: "12px",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.5)",
+            overflowY: "auto",
+            display: "flex",
+            justifyContent: "center",
+            backgroundColor: "#333",
           }}
         >
-          ✕ Close PDF
-        </button>
+          <button onClick={closePdf} className="media-close-btn">
+            ✕ Close PDF
+          </button>
 
-        <iframe
-          title="PDF viewer"
-          src={pdfUrl}
-          style={{ width: "100%", height: "100%", border: "0" }}
-        />
+          <Document
+            file={pdfFile}
+            loading={
+              <div style={{ color: "#aaa", padding: "20px" }}>
+                Loading PDF rendering engine...
+              </div>
+            }
+          >
+            <Page
+              pageNumber={currentPage}
+              renderTextLayer={true} // Allows user to highlight/copy text
+              renderAnnotationLayer={true}
+              width={450} // Adjust this base width as needed, or calculate dynamically
+              className="media-react-page"
+            />
+          </Document>
+        </div>
+
+        {/* CUSTOM PAGINATION BAR */}
+        <div className="media-pagination">
+          <button
+            onClick={() => handlePageChange("prev")}
+            disabled={currentPage === 1}
+            className="media-page-btn"
+          >
+            ◀ Prev
+          </button>
+          <span className="media-page-text">
+            Page <strong>{currentPage}</strong> of {totalPages}
+          </span>
+          <button
+            onClick={() => handlePageChange("next")}
+            disabled={currentPage === totalPages}
+            className="media-page-btn"
+          >
+            Next ▶
+          </button>
+        </div>
       </div>
     );
   }
@@ -64,22 +150,7 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
   return (
     <div
       onClick={handleContainerClick}
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: "pointer",
-        backgroundColor: "#1e1e1e",
-        border: "2px dashed #444",
-        borderRadius: "8px",
-        boxSizing: "border-box",
-        transition: "background-color 0.2s ease",
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#242424")}
-      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#1e1e1e")}
+      className={`media-empty-state ${isExtracting ? "extracting" : ""}`}
     >
       <input
         type="file"
@@ -88,33 +159,14 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
         onChange={handleFileChange}
         style={{ display: "none" }}
       />
-
-      <div
-        style={{
-          fontSize: "32px",
-          color: "#555",
-          marginBottom: "8px",
-          fontWeight: "300",
-        }}
-      >
-        +
-      </div>
-      <button
-        style={{
-          padding: "6px 12px",
-          fontSize: "12px",
-          backgroundColor: "#a970ff",
-          color: "white",
-          fontWeight: "bold",
-          border: "none",
-          borderRadius: "6px",
-          cursor: "pointer",
-          pointerEvents: "none",
-          whiteSpace: "nowrap",
-        }}
-      >
-        Open file
-      </button>
+      {isExtracting ? (
+        <div className="media-extracting-text">Extracting Text...</div>
+      ) : (
+        <>
+          <div className="media-plus-icon">+</div>
+          <button className="media-open-btn">Open file</button>
+        </>
+      )}
     </div>
   );
 }
