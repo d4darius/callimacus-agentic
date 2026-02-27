@@ -339,18 +339,33 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     return () => window.removeEventListener("injectOcr", handleInjectOcr);
   }, []);
 
-  // EXTERNAL CONTEXT INJECTOR: Your external audio/ocr components will call this to secretly dump data into the active bucket
-  const injectBackgroundContext = (type: "audio" | "ocr", rawText: string) => {
-    const activeId = activeHeadingRef.current;
-    if (!sectionRegister.current[activeId]) return;
+  // HELPER: Listen for Live Audio injections from the WebSocket Streamer
+  useEffect(() => {
+    const handleInjectAudio = (e: any) => {
+      // 💡 FIX: We bypass helper functions completely to avoid scope/hoisting crashes!
+      const activeId = activeHeadingRef.current;
+      if (sectionRegister.current[activeId]) {
+        sectionRegister.current[activeId].audioContext.push(e.detail);
+        console.log(`🎤 Injected audio into: ${activeId}`);
+      }
+    };
 
-    if (type === "audio") {
-      sectionRegister.current[activeId].audioContext.push(rawText);
-    } else {
-      sectionRegister.current[activeId].ocrContext.push(rawText);
-    }
-    console.log(`Injected ${type} data into heading: ${activeId}`);
-  };
+    window.addEventListener("injectAudio", handleInjectAudio);
+    return () => window.removeEventListener("injectAudio", handleInjectAudio);
+  }, []); // Safe empty dependency array because we only use mutable refs!
+
+  // // EXTERNAL CONTEXT INJECTOR: Your external audio/ocr components will call this to secretly dump data into the active bucket
+  // const injectBackgroundContext = (type: "audio" | "ocr", rawText: string) => {
+  //   const activeId = activeHeadingRef.current;
+  //   if (!sectionRegister.current[activeId]) return;
+
+  //   if (type === "audio") {
+  //     sectionRegister.current[activeId].audioContext.push(rawText);
+  //   } else {
+  //     sectionRegister.current[activeId].ocrContext.push(rawText);
+  //   }
+  //   console.log(`Injected ${type} data into heading: ${activeId}`);
+  // };
 
   // 2) SEND TO LLM
   const sendSectionToLLM = async (headingId: string) => {

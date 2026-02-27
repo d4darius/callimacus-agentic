@@ -1,14 +1,23 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 import logging
 import re
 import json
 import uvicorn
 import fitz
+import io
+import torch
+import numpy as np
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from pydub import AudioSegment
+from faster_whisper import WhisperModel
 
 # --- LANGGRAPH IMPORTS ---
 from langchain.messages import HumanMessage
@@ -38,12 +47,64 @@ DOCS_DIR = Path(__file__).resolve().parent / "docs"
 MEDIA_DIR = Path(__file__).resolve().parent / "media"
 CONTEXT_DIR = Path(__file__).resolve().parent / "context"
 
+# --- GLOBAL ML MODELS ---
+audio_model = None
+vad_model = None
+get_speech_timestamps = None
+
 # --- LIFESPAN (MEMORY PERSISTENCE) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global audio_model, vad_model, get_speech_timestamps
     logger.info("🚀 Starting up Callimacus FastAPI Server...")
-    # Load cross-thread preferences from JSON to RAM
+
+    # 1. Load LangGraph Memory
     load_global_memory(in_memory_store)
+    
+    # 2. Boot up Faster-Whisper (Using the 'base' or 'small' model for real-time speed)
+    logger.info("🧠 Loading Faster-Whisper model...")
+    cache_path = os.path.expanduser("~/.cache/huggingface/hub/models--Systran--faster-whisper-base/snapshots/")
+    
+    # Find the specific snapshot folder string inside
+    try:
+        snapshot_folder = os.listdir(cache_path)[0]
+        local_model_path = os.path.join(cache_path, snapshot_folder)
+        
+        # Load directly from the hard drive, bypassing network requests completely!
+        audio_model = WhisperModel(
+            local_model_path, 
+            device="cpu", 
+            compute_type="default", 
+            local_files_only=True,
+            cpu_threads=2  
+        )
+        
+    except FileNotFoundError:
+        logger.error("❌ Faster-Whisper cache not found! Did you run setup_models.py?")
+        raise
+    
+    # 3. Boot up Silero VAD
+    logger.info("🧠 Loading Silero VAD model from local cache...")
+    
+    # 💡 THE FIX: Point directly to the PyTorch Hub cache folder!
+    silero_cache_path = os.path.expanduser("~/.cache/torch/hub/snakers4_silero-vad_master")
+    
+    try:
+        # Pass source='local' to skip GitHub completely!
+        vad_model, utils = torch.hub.load(
+            repo_or_dir=silero_cache_path, 
+            source='local',
+            model='silero_vad', 
+            force_reload=False,
+            trust_repo=True
+        )
+        (get_speech_timestamps, _, read_audio, _, _) = utils
+        
+    except FileNotFoundError:
+        logger.error("❌ Silero VAD cache not found! Did you run setup_models.py?")
+        raise
+
+    logger.info("✅ Server startup complete.")
     
     yield # Server is running...
     
@@ -283,6 +344,52 @@ async def request_rewrite(payload: RequestPayload):
     await agent.ainvoke({"messages": [HumanMessage(content=rewrite_prompt)]}, config)
     
     return {"status": "completed", "message": "Memory updated and paragraph rewritten."}
+
+# ------------------------------------------
+# REAL-TIME AUDIO WEBSOCKET
+# ------------------------------------------
+@app.websocket("/api/ws/audio")
+async def websocket_audio_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    logger.info("🎤 Client connected to Audio WebSocket")
+    
+    audio_buffer = bytearray()
+    
+    try:
+        while True:
+            # 1. Catch the RAW PCM audio bytes from React
+            chunk = await websocket.receive_bytes()
+            audio_buffer.extend(chunk)
+            
+            # We process every ~3 seconds (16kHz * 2 bytes * 3s = ~96000 bytes)
+            if len(audio_buffer) >= 96000: 
+                try:
+                    # 2. Convert Raw Int16 Bytes directly to PyTorch Float32 Tensor
+                    pcm_array = np.frombuffer(audio_buffer, dtype=np.int16)
+                    samples = pcm_array.astype(np.float32) / 32768.0
+                    audio_tensor = torch.from_numpy(samples)
+                    
+                    # 3. Run Silero VAD to detect speech
+                    speech_timestamps = get_speech_timestamps(audio_tensor, vad_model, sampling_rate=16000)
+                    
+                    if speech_timestamps:
+                        # 4. If speech is detected, run Faster-Whisper!
+                        segments, info = audio_model.transcribe(samples, beam_size=5, language="en")
+                        
+                        transcript = " ".join([segment.text for segment in segments]).strip()
+                        
+                        if transcript:
+                            logger.debug(f"🗣️ Transcribed: {transcript}")
+                            await websocket.send_json({"text": f" {transcript} "})
+                    
+                    audio_buffer = bytearray()
+                    
+                except Exception as e:
+                    logger.error(f"Audio Processing Error: {e}")
+                    audio_buffer = bytearray()
+            
+    except WebSocketDisconnect:
+        logger.info("🎤 Client disconnected from Audio WebSocket")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

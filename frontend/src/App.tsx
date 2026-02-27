@@ -2,6 +2,7 @@ import { useState } from "react";
 import Document from "./components/Document";
 import Sidebar from "./components/Sidebar.tsx";
 import MediaWindow from "./components/MediaWindow";
+import AudioStreamer from "./components/AudioStreamer";
 
 function App() {
   // Tracking the currently open file
@@ -61,6 +62,7 @@ function App() {
           <MediaWindow onToggleExpand={setIsMediaExpanded} />
         </div>
       </div>
+      <AudioStreamer isSessionActive={isSessionActive} />
     </>
   );
 }
