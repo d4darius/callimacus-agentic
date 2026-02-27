@@ -19,7 +19,10 @@ from pydantic import BaseModel
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
 
-# --- LANGGRAPH IMPORTS ---
+# ------------------------------------------
+# LANGGRAPH IMPORTS 
+# ------------------------------------------
+
 from langchain.messages import HumanMessage
 from langgraph.types import Command
 from document import Document
@@ -35,7 +38,10 @@ from learning_assistant.utils import (
 )
 from learning_assistant.prompts import agent_user_prompt
 
-# --- CONFIG & LOGGING ---
+# ------------------------------------------
+# CONFIG & LOGGING
+# ------------------------------------------
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
@@ -43,20 +49,83 @@ logging.basicConfig(
 )
 logger = logging.getLogger("CallimacusAPI")
 
-DOCS_DIR = Path(__file__).resolve().parent / "docs"
-MEDIA_DIR = Path(__file__).resolve().parent / "media"
-CONTEXT_DIR = Path(__file__).resolve().parent / "context"
+DOCS_DIR = os.getenv("DOCS_DIR", "./docs")
+CONTEXT_DIR = os.getenv("CONTEXT_DIR", "./context")
 
-# --- GLOBAL ML MODELS ---
+# ------------------------------------------
+# GLOBAL ML MODELS
+# ------------------------------------------
+
 audio_model = None
 vad_model = None
 get_speech_timestamps = None
 
-# --- LIFESPAN (MEMORY PERSISTENCE) ---
+# ------------------------------------------
+# TESTING FUNCTION
+# ------------------------------------------
+
+def run_document_sanity_checks():
+    """Simulates user actions to verify the unified Document architecture."""
+    logger.info("🧪 Running Document Architecture Sanity Checks...")
+    
+    test_id = "test_sanity_123"
+    doc = Document(test_id)
+    
+    try:
+        # TEST 1: Simulate user creating a document with 2 headings
+        dummy_ui = [
+            {"id": "h1", "type": "heading", "content": [{"text": "Title"}]},
+            {"id": "p1", "type": "paragraph", "content": [{"text": "Hello"}]},
+            {"id": "h2", "type": "heading", "content": [{"text": "Second"}]},
+            {"id": "p2", "type": "paragraph", "content": [{"text": "World"}]}
+        ]
+        doc.save_ui_document(json.dumps(dummy_ui))
+        
+        # Trigger the sync (what happens when the user hits 'Process')
+        doc.sync_context_from_ui()
+        
+        assert "h1" in doc.paragraphs, "H1 missing from context!"
+        assert "h2" in doc.paragraphs, "H2 missing from context!"
+        assert doc.paragraphs["h1"]["notes"] == "Hello", "P1 text didn't map to H1!"
+        
+        # TEST 2: Simulate user DELETING the second heading (Merging p2 into h1)
+        dummy_ui_merged = [
+            {"id": "h1", "type": "heading", "content": [{"text": "Title"}]},
+            {"id": "p1", "type": "paragraph", "content": [{"text": "Hello"}]},
+            {"id": "p2", "type": "paragraph", "content": [{"text": "World"}]}
+        ]
+        doc.save_ui_document(json.dumps(dummy_ui_merged))
+        doc.sync_context_from_ui()
+        
+        assert "h2" not in doc.paragraphs, "Pruning failed! Deleted heading still in memory."
+        assert doc.paragraphs["h1"]["notes"] == "Hello\n\nWorld", "Merge upward failed! Text didn't combine."
+        
+        # TEST 3: Simulate the AI receiving Audio/OCR
+        doc.update_paragraph_metadata("h1", audio="test audio", ocr="test ocr")
+        
+        assert doc.paragraphs["h1"]["audio"] == "test audio", "Audio failed to save."
+        assert doc.paragraphs["h1"]["notes"] == "Hello\n\nWorld", "CRITICAL BUG: Updating AI metadata wiped the user's notes!"
+        
+        logger.info("✅ All Document Sanity Checks Passed! Architecture is rock solid.")
+        
+    finally:
+        # Cleanup the dummy files so we don't clutter your directories
+        if os.path.exists(doc.doc_file_path):
+            os.remove(doc.doc_file_path)
+        if os.path.exists(doc.context_file_path):
+            os.remove(doc.context_file_path)
+
+# ------------------------------------------
+# LIFESPAN
+# ------------------------------------------
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global audio_model, vad_model, get_speech_timestamps
     logger.info("🚀 Starting up Callimacus FastAPI Server...")
+
+    # 0. Run unified architecture tests
+    run_document_sanity_checks()
 
     # 1. Load LangGraph Memory
     load_global_memory(in_memory_store)
@@ -124,7 +193,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- UTILS ---
+# ------------------------------------------
+# UTILS
+# ------------------------------------------
+
 def safe_doc_path(doc_id: str) -> Path:
     # Prevent path traversal; only allow simple ids like: example-1_test
     safe = re.sub(r"[^a-zA-Z0-9_-]", "", doc_id)
@@ -132,6 +204,12 @@ def safe_doc_path(doc_id: str) -> Path:
 
 def safe_id(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "", value)
+
+def get_document(doc_id: str) -> Document:
+    """Ensures a single instance of a document exists in memory."""
+    if doc_id not in DOCUMENT_STORAGE:
+        DOCUMENT_STORAGE[doc_id] = Document(doc_id)
+    return DOCUMENT_STORAGE[doc_id]
 
 # ------------------------------------------
 # FILE SYSTEM & DOCUMENT ENDPOINTS
@@ -144,20 +222,14 @@ class RenameUpdate(BaseModel):
 
 @app.post("/api/docs/{doc_id}/rename")
 def rename_doc(doc_id: str, payload: RenameUpdate):
-    old_path = safe_doc_path(doc_id)
-    new_path = safe_doc_path(payload.new_id)
-
-    # 1. Check if the file we want to rename actually exists
-    if not old_path.exists() or not old_path.is_file():
-        raise HTTPException(status_code=404, detail="Original document not found")
-
-    # 2. Prevent accidentally overwriting another file that already has the new name
-    if new_path.exists():
-        raise HTTPException(status_code=400, detail="A document with this name already exists")
-
-    # 3. Physically rename the file on the hard drive
-    old_path.rename(new_path)
-
+    doc = get_document(doc_id)
+    
+    success = doc.rename(payload.new_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot rename. Target exists or original missing.")
+    
+    # Update global storage dictionary key
+    DOCUMENT_STORAGE[payload.new_id] = DOCUMENT_STORAGE.pop(doc_id)
     return {"ok": True, "oldId": doc_id, "newId": payload.new_id, "newName": payload.new_name}
 
 class DocUpdate(BaseModel):
@@ -166,50 +238,24 @@ class DocUpdate(BaseModel):
 # --- DOCUMENT ENDPOINTS ---
 @app.get("/api/docs")
 def list_docs():
-    # 1. Create the directory if it doesn't exist yet
-    if not DOCS_DIR.exists():
-        DOCS_DIR.mkdir(parents=True, exist_ok=True)
-        
-    docs = []
-    for file_path in DOCS_DIR.glob("*.json"):
-        docs.append({
-            "id": file_path.stem, 
-            "name": file_path.stem.replace("_", " ").replace("-", " ").title() 
-        })
-        
-    return docs
+    return Document.get_all_documents()
 
 @app.get("/api/docs/{doc_id}")
 def get_doc(doc_id: str):
-    path = safe_doc_path(doc_id)
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    content = path.read_text(encoding="utf-8")
+    doc = get_document(doc_id)
+    content = doc.get_ui_document()
+    if not content or content == "[]":
+        # Create it if it's completely empty
+        doc.save_ui_document("[]")
     return {"docId": doc_id, "content": content}
 
 @app.put("/api/docs/{doc_id}")
 def put_doc(doc_id: str, payload: DocUpdate):
-    path = safe_doc_path(doc_id)
-    
-    if not DOCS_DIR.exists():
-        DOCS_DIR.mkdir(parents=True, exist_ok=True)
-
-    path.write_text(payload.content, encoding="utf-8")
-    
+    doc = get_document(doc_id)
+    doc.save_ui_document(payload.content)
     return {"ok": True, "docId": doc_id}
 
 # --- MEDIA ENDPOINTS ---
-@app.get("/api/media/pdf/{pdf_id}")
-def get_pdf(pdf_id: str):
-    safe = safe_id(pdf_id)
-    path = MEDIA_DIR / f"{safe}.pdf"
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="PDF not found")
-
-    # Inline display in browser
-    return FileResponse(path, media_type="application/pdf", filename=f"{safe}.pdf", content_disposition_type="inline")
-
 @app.post("/api/media/extract")
 async def extract_pdf_text(file: UploadFile = File(...)):
     try:
@@ -247,29 +293,25 @@ async def process_paragraph(payload: ProcessPayload):
     """Triggers the LangGraph agent to analyze sources and either compile or pause for HITL."""
     
     # 1. Ensure document is loaded in storage
-    if payload.doc_id not in DOCUMENT_STORAGE:
-        DOCUMENT_STORAGE[payload.doc_id] = Document(payload.doc_id)
-    doc = DOCUMENT_STORAGE[payload.doc_id]
+    doc = get_document(payload.doc_id)
     
     # 2. Update the AI Context safely
-    if payload.par_id not in doc.paragraphs:
-        doc.paragraphs[payload.par_id] = {}
-        
-    doc.paragraphs[payload.par_id]["audio"] = payload.audio
-    doc.paragraphs[payload.par_id]["ocr"] = payload.ocr
-    doc.paragraphs[payload.par_id]["notes"] = payload.notes
-    doc._save_context()
+    doc.update_paragraph_metadata(payload.par_id, payload.audio, payload.ocr)
 
     # 3. Setup LangGraph Thread
     thread_id = f"{payload.doc_id}_{payload.par_id}"
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Fetch perfectly reconciled notes
+    par_data = doc.get_paragraph(payload.par_id)
+    current_notes = par_data.get("notes", "")
     
     agent_prompt = agent_user_prompt.format(
         doc_id = payload.doc_id,
         par_id = payload.par_id,
         audio = payload.audio,
         ocr = payload.ocr,
-        notes = payload.notes
+        notes = current_notes
     )
 
     initial_state = {
@@ -322,13 +364,17 @@ async def resume_agent(payload: ResumePayload):
 class RequestPayload(BaseModel):
     doc_id: str
     par_id: str
-    instruction: str # e.g., "Rewrite this to be bullet points"
+    instruction: str
 
 @app.post("/api/llm/request")
 async def request_rewrite(payload: RequestPayload):
     """Updates the Compiler's global memory and forces a paragraph rewrite."""
+    doc = get_document(payload.doc_id)
+
+    # 1. Trigger the atomic sync here too!
+    doc.sync_context_from_ui()
     
-    # 1. Learn from the request! Target the Compiler Profile so it learns stylistic choices.
+    # 2. Learn from the request! Target the Compiler Profile so it learns stylistic choices.
     update_memory(
         in_memory_store, 
         ("learning_assistant", "compiler_profile"), 
@@ -338,16 +384,20 @@ async def request_rewrite(payload: RequestPayload):
     # 2. Tell the graph to regenerate the paragraph
     thread_id = f"{payload.doc_id}_{payload.par_id}"
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Fetch perfectly reconciled notes
+    par_data = doc.get_paragraph(payload.par_id)
+    current_notes = par_data.get("notes", "")
     
-    rewrite_prompt = f"The user requested a rewrite for this paragraph with these specific instructions: '{payload.instruction}'. Please invoke 'create_paragraph' immediately to regenerate and apply these changes."
-    
+    rewrite_prompt = f"The user requested a rewrite: '{payload.instruction}'. Use these notes: {current_notes}. Please invoke 'create_paragraph'."
+
     await agent.ainvoke({"messages": [HumanMessage(content=rewrite_prompt)]}, config)
-    
     return {"status": "completed", "message": "Memory updated and paragraph rewritten."}
 
 # ------------------------------------------
 # REAL-TIME AUDIO WEBSOCKET
 # ------------------------------------------
+
 @app.websocket("/api/ws/audio")
 async def websocket_audio_endpoint(websocket: WebSocket):
     await websocket.accept()

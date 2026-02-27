@@ -1,8 +1,0 @@
-{
-    "test_par_001": {
-        "audio": "we must divide the mass by the volume to get density.",
-        "ocr": "Formula on slide: Density = Mass * Volume",
-        "notes": "### Density\n\nThe `density` of an object is defined as the ratio of its mass to its volume. In other words, to calculate density, we must divide the mass by the volume, not multiply them. The correct formula is:\n\n```\ndensity = mass / volume\n```\n\nThis means that density expresses how much mass is contained in a given unit of volume. It is a fundamental property used to characterize materials and substances.\n\n- For example, if an object has a mass of 10 kg and a volume of 2 m\u00b3, its density would be 5 kg/m\u00b3.\n- The units of density are typically kilograms per cubic meter (kg/m\u00b3) or grams per cubic centimeter (g/cm\u00b3).\n\n> **Note:** There was a typo in the slide formula (OCR), which incorrectly stated `Density = Mass * Volume`. The correct formula, as confirmed by the audio and standard definitions, is `Density = Mass / Volume`.",
-        "additional_notes": "Important context from user: regarding 'There is a conflict between the sources regarding the formula for density. The audio states density is mass divided by volume, the OCR slide says density is mass multiplied by volume, and the notes mention the ratio between volume and mass. Which is the correct formula for density: mass divided by volume, or mass multiplied by volume?', the answer is 'The OCR is a typo. The audio is correct, we must divide.'."
-    }
-}
