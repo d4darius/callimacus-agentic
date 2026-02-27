@@ -11,3 +11,7 @@ langchain-openai
 # Data Validation & Environment
 pydantic
 python-dotenv
+
+# PDF extraction
+pymupdf
+python-multipart
