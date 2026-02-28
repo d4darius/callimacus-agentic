@@ -55,7 +55,10 @@ function App() {
         </div>
       </div>
 
-      <AudioStreamer isSessionActive={isSessionActive} />
+      <AudioStreamer
+        isSessionActive={isSessionActive}
+        audioSource={audioSource}
+      />
     </>
   );
 }

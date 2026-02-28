@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 
 interface AudioStreamerProps {
   isSessionActive: boolean;
+  audioSource: "mic" | "system";
 }
 
-function AudioStreamer({ isSessionActive }: AudioStreamerProps) {
+function AudioStreamer({ isSessionActive, audioSource }: AudioStreamerProps) {
   const socketRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -45,7 +46,7 @@ function AudioStreamer({ isSessionActive }: AudioStreamerProps) {
           console.log(
             `🎤 WebSocket Disconnected. Code: ${e.code}, Reason: ${e.reason || "None"}`,
           );
-        ws.onerror = (e) => console.error("❌ WebSocket Error Event Triggered");
+        ws.onerror = () => console.error("❌ WebSocket Error Event Triggered");
 
         // 2. Listen for text coming BACK from Python and broadcast it
         ws.onmessage = (event) => {
@@ -57,12 +58,32 @@ function AudioStreamer({ isSessionActive }: AudioStreamerProps) {
           }
         };
 
-        // 3. Request Microphone permissions
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
+        // 3. Dynamic Media Selection based on dropdown
+        let stream: MediaStream;
+        if (audioSource === "system") {
+          // Captures Screen/Tab/Window audio
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { displaySurface: "browser" },
+            audio: true,
+          });
+
+          // SAFEGUARD: Did the user check "Share tab audio"?
+          if (stream.getAudioTracks().length === 0) {
+            alert(
+              "No audio track detected! Please make sure to check 'Also share tab audio' in the Chrome popup.",
+            );
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
+        } else {
+          // Standard Microphone
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
         if (!isMounted) return;
         streamRef.current = stream;
+
+        const audioTrack = stream.getAudioTracks()[0];
+        const audioOnlyStream = new MediaStream([audioTrack]);
 
         // 4. Create the Raw PCM Audio Context (with Safari Fallback)
         const AudioContextClass =
@@ -70,57 +91,39 @@ function AudioStreamer({ isSessionActive }: AudioStreamerProps) {
         const audioContext = new AudioContextClass({ sampleRate: 16000 });
         audioContextRef.current = audioContext;
 
-        // 💡 THE FIX: Force the browser to wake up the audio context!
+        // Force the browser to wake up the audio context!
         if (audioContext.state === "suspended") {
           await audioContext.resume();
         }
 
         // 5. Connect the microphone to the script processor
-        const source = audioContext.createMediaStreamSource(stream);
+        const source = audioContext.createMediaStreamSource(audioOnlyStream);
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
         processorRef.current = processor;
 
         const dummyGain = audioContext.createGain();
         dummyGain.gain.value = 0.00001;
 
-        // 💡 DEBUG: Track how many chunks we send
-        let chunkCount = 0;
-
         processor.onaudioprocess = (e) => {
           if (ws.readyState === WebSocket.OPEN) {
             const float32Array = e.inputBuffer.getChannelData(0);
             const int16Array = new Int16Array(float32Array.length);
 
-            let maxVolume = 0; // 💡 DEBUG: Find the loudest sound in this chunk
-
             for (let i = 0; i < float32Array.length; i++) {
               let s = Math.max(-1, Math.min(1, float32Array[i]));
               int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-
-              // 💡 DEBUG: Track volume
-              if (Math.abs(int16Array[i]) > maxVolume) {
-                maxVolume = Math.abs(int16Array[i]);
-              }
             }
             ws.send(int16Array.buffer);
-
-            // 💡 DEBUG: Print a heartbeat to the Chrome Console every ~2 seconds
-            chunkCount++;
-            if (chunkCount % 10 === 0) {
-              console.log(
-                `[AudioStreamer] 📡 Sent 10 chunks. Latest Max Volume: ${maxVolume}`,
-              );
-              if (maxVolume === 0) {
-                console.warn(
-                  "⚠️ WARNING: Audio is dead silent (0 volume). Chrome might have muted the track!",
-                );
-              }
-            }
           }
         };
 
+        // Complete the circuit so audio actually flows
         source.connect(processor);
-        processor.connect(audioContext.destination);
+        processor.connect(dummyGain);
+        dummyGain.connect(audioContext.destination);
+
+        // Prevent Garbage Collection in background tabs
+        (window as any)._audioProcessorRef = processor;
       } catch (err) {
         console.error("Microphone access denied or WebSocket failed:", err);
       }
@@ -141,7 +144,7 @@ function AudioStreamer({ isSessionActive }: AudioStreamerProps) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       socketRef.current?.close();
     };
-  }, [isSessionActive]);
+  }, [isSessionActive, audioSource]);
 
   return null;
 }
