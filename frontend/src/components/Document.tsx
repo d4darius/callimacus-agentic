@@ -174,6 +174,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
   const activeHeadingRef = useRef<string>("doc-start");
   // UNBOUNDED BUFFER: to be flushed into paragraph as soon as we write in one
   const unassignedPagesRef = useRef<string[]>([]);
+  const isSyncingRef = useRef<boolean>(false);
 
   // 0) MASTER SESSION TOGGLE
   useEffect(() => {
@@ -298,8 +299,6 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     // Recalculate if the window resizes
     window.addEventListener("resize", updatePositions);
     return () => window.removeEventListener("resize", updatePositions);
-
-    // 💡 THE FIX: Removed `editor?.document` from dependencies to stop the loop
   }, [pendingQuestions]);
 
   // HELPER: Reload Editor Sync (Fetches backend AST changes)
@@ -309,11 +308,17 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       const rawData = await fetchDocContent(docId);
       const parsed = JSON.parse(rawData);
       if (Array.isArray(parsed)) {
-        // Hot-swap the blocks to reflect the AI's formatting
+        // Lock the editor!
+        isSyncingRef.current = true;
         editor.replaceBlocks(editor.document, parsed);
+        // Unlock the editor after React finishes rendering
+        setTimeout(() => {
+          isSyncingRef.current = false;
+        }, 100);
       }
     } catch (err) {
       console.error("Failed to sync AST from backend", err);
+      isSyncingRef.current = false; // Failsafe unlock
     }
   };
 
@@ -676,13 +681,26 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         !registerEntry ||
         registerEntry.contentSnapshot !== currentContentStr
       ) {
-        // Protect "processed" paragraphs: If the AI already finished this section, the user is just doing manual touch-ups.
+        // If the AI created this heading, it is born "processed"!
+        if (isSyncingRef.current) {
+          sectionRegister.current[bucket.headingId] = {
+            status: "processed",
+            contentSnapshot: currentContentStr,
+            blocksPayload: bucket.blocks,
+            audioContext: registerEntry?.audioContext || [],
+            ocrContext: registerEntry?.ocrContext || [],
+          };
+          return; // Skip the rest of the loop so it doesn't become a draft
+        }
+
+        // Protect "processed" paragraphs: If the AI already finished this section,
+        // the user is just doing manual touch-ups.
         if (registerEntry && registerEntry.status === "processed") {
           sectionRegister.current[bucket.headingId].contentSnapshot =
             currentContentStr;
           sectionRegister.current[bucket.headingId].blocksPayload =
             bucket.blocks;
-          return; // Skip the rest of the loop so it doesn't become a draft!
+          return; // Skip the rest of the loop so it doesn't become a draft
         }
 
         // Reset visual background if they edit a processed/warning block

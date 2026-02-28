@@ -1,4 +1,4 @@
 {
-    "agent_profile": "When encountering the acronym GDP, default to interpreting it as Gross Domestic Product (an economic indicator), unless the user or context explicitly specifies a different meaning.",
-    "compiler_profile": "Prefers content that is highly cohesive, with clear logical connections and smooth flow between ideas. Frequently requests formatting and style changes to enhance cohesiveness, and is highly sensitive to cohesion issues. Responses should proactively ensure high cohesion in both structure, formatting, and style, anticipating the user's strong sensitivity to cohesion and likelihood of requesting revisions if expectations are not met."
+  "agent_profile": "",
+  "compiler_profile": "Prefers content that is highly cohesive, with clear logical connections and smooth flow between ideas. It prefers that the main point is exposed in the first sentence, followed by bullet points for supporting details. Content should be concise, and key words and concepts should be formatted using `code` and **bold** for emphasis."
 }

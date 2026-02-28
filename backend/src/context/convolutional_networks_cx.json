@@ -1,0 +1,72 @@
+{
+    "doc-start": {
+        "heading": "Document Start",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": ""
+    },
+    "f7742979-b25f-4c22-b72a-e8c43e1901fe": {
+        "heading": "Intro",
+        "audio": " Music   All right, so.   today we will   We will focus on the second part.   of the   convolutional neural nets.   Lecture   Before we start, I know that in the first part of the time slot for the deep learning class.   You should have...   focused on the laboratory. ",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "Certainly! Since only the audio transcription contains content, I will synthesize a cohesive introductory paragraph for your notes, ensuring clarity and logical flow, and anticipating the integration of further material as more sources become available.\n\n---"
+    },
+    "839afa3d-5d5c-4c17-8262-7724ffc9ccc4": {
+        "heading": "Convolutional Neural Networks \u2013 Lecture Introduction",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "It appears that you have not provided the actual content from the three sources (audio transcription, OCR text, and student notes). Please provide the text from each source, and I will synthesize them into a cohesive, well-structured paragraph as requested."
+    },
+    "2c90e9c3-9b8b-4122-9044-28187253667b": {
+        "heading": "Lab notes",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "when we should do the lab, sending instructions\n\nSo far we focused on technical aspects of conv neural networks"
+    },
+    "4cb4198d-5bc1-4465-ac4d-dd64be3a287e": {
+        "heading": "What has been done",
+        "audio": " which means that basically...   We have the ground tooth.   And we use algorithms.   to tune the parameters of our neural networks.   to address a particular task.   And the particular task is the find mainly  through the definition of the loss function.   So we have seen loss functions dedicated to regression problems and the loss functions dedicated to classification problems.   In particular   in the first part of the lecture on CNNs  before pushed on image classification.   which is interesting because it allows us to understand some of the technicalities related to...   a particular kind of filters that are called convolutional filters.   and how learning these filters is done.   In addition, we also discussed the connections that existed between...   the difficulty of training convolutional neural networks.   and   the behavior of stochastic approximation algorithms, stochastic optimization algorithms.   and   Now, the problem is that image classification can be found, we have...   seen, for example, in the first laboratory.   I   a data set that is very famous, it's called the MNIST data set, with very well defined.   images.   And, um,   We have discussed last time about other datasets that are very popular in the domain of   image classification that is   the C-FAR 10 or C-FAR 100 data site.   or the very large image net data set.   very broadly speaking, when we address image classification problems, we also talked about ",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "In neural network training, we use algorithms to tune model parameters for specific tasks, which are defined primarily through the loss function. Loss functions differ based on the problem type, such as regression or classification. In the context of convolutional neural networks (CNNs), image classification tasks are particularly important, as they help illustrate technical aspects like convolutional filters and how these filters are learned. Training CNNs presents unique challenges, often linked to the behavior of stochastic optimization algorithms. Common datasets for image classification include MNIST, which contains well-defined images, as well as CIFAR-10, CIFAR-100, and the large-scale ImageNet dataset. These datasets are widely used to benchmark and study the performance of neural networks in image classification."
+    },
+    "8d81ac15-bfe2-40c0-9d5f-7cae341f5d49": {
+        "heading": "Pre processing Steps",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "They are necessary and they require clear labels to process"
+    },
+    "9d880262-5f59-42b8-80af-5fe9bc90f749": {
+        "heading": "Computer vision",
+        "audio": " in computer vision tasks.   The problem is a bit more difficult than in image classification.  First of all, the images are not necessarily...   well centered, they are not nice as they are in the data sets that we use for.   image classification.   there can be more than one object per image.   And   and the real world application require even more   techniques than simply classification.   to decide where are the objects.   and which objects are present in a scene.   a typical application could be, for example,  when you work in autonomous transportation systems.   I've set driving cars, for example.   where computer vision plays a crucial role.   But there are many other computer vision tasks related to health.   for example   uh   that required.   more advanced techniques than simple image classification.   Now, before we go through the slides, that... ",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "In computer vision tasks, the challenges extend beyond those found in standard image classification. Images are often not well-centered or as clean as those in curated datasets, and a single image may contain multiple objects. Real-world applications require more advanced techniques than simple classification to both locate objects and identify which ones are present in a scene. For instance, autonomous transportation systems, such as self-driving cars, rely heavily on computer vision to interpret their surroundings. Similarly, applications in healthcare demand sophisticated methods that go beyond basic image classification to address complex visual scenarios."
+    },
+    "d150fb85-e71b-456a-9351-f7fd32f55d22": {
+        "heading": "Going through the slides",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "disclamer"
+    },
+    "c9a69f2e-fa8e-4f76-a7c5-dbcf3b59d200": {
+        "heading": "NoSQL",
+        "audio": " But this kind of opens up a trade of where else can I store it?  What other formats, what other systems are there that actually specialize in?   non-relational data storage, right? And that's exactly where this whole no-sequel moment  It actually came up.   So, Rosicone stands actually for not only sequel, it's a big misnomer because when you guys  probably were not a part of this buzz when it was going on.   This was, I think, around the time and big data and Hadoop was a big thing, right?  So, it was quite a long time ago.  And during this time, people really started off   discussing, you know, the fact that we have a lot more semi-structured data now,  we have a lot more data sitting in JSON files now that we don't want to store in a database.   that we don't want to query from a database.  And as I mentioned, they also needed greater scalability  than open source databases.   Notice two things here first commercial databases like Oracle have always scale so as I always say like if someone tells you the database relational databases do not scale that just   So, we have always been able to scale commercial databases, they cost money.   open source databases they are free but did not scale not anymore right now open source is caught up they are very very good   Now in fact databases have also caught up so a couple of years ago when I taught this lecture  I had pretty much this exact same slide. It was one year I think last year or the year before and somebody actually   said, well, I can actually query JSON from my database now entirely true, right? So databases  have also caught up. Now you can query JSON files from a database. You can query CSV files.  You can do direct lookup.   So, everything blurs because normally when a new functionality comes out, database engine  see that there is a market they can go after and they will immediately add a new functionality,  right.   It's changing, but at the time, when NoSQL was there,  they wanted this.  They wanted something that could scale  than a database, preference for free and open software.   Sir   a more dynamic model than a relational model, so they wanted the ability to not dictate the schema.   First, but something that can actually allow you to change schema more fluidly, more easily, right?  JSON is a very good example of that. So if you take this file stored in JSON, for example,   And I want to add one more field which could be for example I don't know like children or something like that right   I just basically go open up this file, add a field and I'm done.  If this is a database, it's a whole lot more complicated, right?  You have to add a particular column, link it to the other table which has the users.   lot more complicated. So this is what they wanted and and specialized query operations that are not  well supported by the relational model. I'll give you an example of that.   So, this is how no SQL was born, it was a Twitter hashtag for a meter and then it just took  off in a completely different direction right and people started using no SQL really as   argument against databases against SQL which is totally stupid because half of these systems  now support SQL or all of them now support SQL I should say right so it was really ",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "The rise of **NoSQL databases** was driven by the need for scalable, flexible storage of **non-relational** and **semi-structured data**\u2014especially formats like `JSON`\u2014which traditional relational databases were not designed to handle efficiently.\n\n- This shift emerged during the **big data** and **Hadoop** era, as organizations faced growing volumes of semi-structured data and needed greater scalability than open source relational databases could provide at the time.\n- **Commercial databases** (e.g., `Oracle`) always offered scalability but were expensive, while open source solutions initially lagged behind\u2014though today, open source databases have largely caught up in scalability and features.\n- **NoSQL systems** introduced a more dynamic data model, enabling **flexible schema changes** without the rigid structure of relational models. For example, adding a new field to a `JSON` file is simple, whereas altering a relational schema is complex and time-consuming.\n- The original **NoSQL movement** was partly a reaction to these needs, but over time, the distinction between NoSQL and SQL databases has blurred:\n  - Many NoSQL systems now support `SQL` queries.\n  - Relational databases have added support for semi-structured formats like `JSON` and `CSV`.\n- This evolution demonstrates the **database industry's adaptability** to changing data management requirements and market opportunities, with new functionalities rapidly adopted across systems."
+    },
+    "181464c3-fd7b-4129-93dd-350f6c48f68f": {
+        "heading": "NoSql Categories",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "what are"
+    }
+}
