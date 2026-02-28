@@ -133,6 +133,9 @@ class Document():
         
         # 4. Parse the LLM Markdown into BlockNote Blocks
         new_blocks = []
+
+        # Normalize single newlines before lists/quotes into double newlines.
+        content = re.sub(r'\n+(?=[\-\*]\s|\d+[\.\)]\s|>)', '\n\n', content)
         
         # Split the markdown by double newlines to separate paragraphs/lists
         chunks = content.strip().split("\n\n")
@@ -176,9 +179,9 @@ class Document():
                 block_type = "bulletListItem"
                 text_val = chunk[2:]
             # Detect numbered lists
-            elif len(chunk) > 2 and chunk[0].isdigit() and chunk[1:3] in [". ", ") "]:
+            elif re.match(r'^\d+[\.\)]\s', chunk):
                 block_type = "numberedListItem"
-                text_val = chunk[3:]
+                text_val = re.sub(r'^\d+[\.\)]\s', '', chunk)
 
             # Detect quotes and strip
             elif chunk.startswith(">"):
