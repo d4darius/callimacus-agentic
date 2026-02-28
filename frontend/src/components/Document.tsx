@@ -835,7 +835,13 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       style={{ position: "relative" }}
       ref={containerRef}
     >
-      <h1>{docname}</h1>
+      <h1>
+        {docname
+          .split(/[-_]/) // Split the string by dashes or underscores
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize each word
+          .join(" ")}{" "}
+        {/* Join them back together with spaces */}
+      </h1>
       <BlockNoteView
         editor={editor}
         theme="dark"

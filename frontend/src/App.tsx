@@ -19,18 +19,11 @@ function App() {
           style={{ display: "flex", alignItems: "center", gap: "8px" }}
         >
           {/* Brain / Notebook Icon replacing the emoji */}
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--accent-blue)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-          </svg>
+          <img
+            src="/src/assets/Callimachus_logo.svg"
+            alt="Callimachus Logo"
+            style={{ height: "25px", width: "auto" }}
+          />
           Callimachus Noter
         </div>
 

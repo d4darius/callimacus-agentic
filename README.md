@@ -18,7 +18,7 @@ Callimachus 2.0 is designed to handle the complexity of multi-modal educational 
 
 Instead of forcing one LLM to do everything, the backend utilizes a highly specialized, multi-agent LangGraph system:
 
-![Agent Architecture Diagram](img/agent_schematic.jpeg)
+![Agent Architecture Diagram](img/agent_schematic.png)
 
 - **The Agent Model (The Manager)**: Evaluates incoming multimodal payloads (audio, OCR, notes) to check for contradictions. It decides whether it has enough information to proceed or needs to pause execution to ask the user a clarifying question.
 - **The Compiling Model (The Writer)**: Takes the raw data, applies formatting preferences, and writes the final markdown text using tools like `create_paragraph`.
