@@ -1,161 +1,86 @@
-# Learning Assistant - Agentic AI for Educational Content
+# Callimachus 2.0 - Agentic AI for Educational Content
+
+**Created by Dario Gosmar**.
 
 This project implements an Agentic AI assistant designed to process multiple types of educational inputs (audio transcriptions, slide text, handwritten notes) and integrate them into a structured markdown document that functions like a Notion notebook.
 
-## Overview
+![Platform Interface Empty](img/file_sys_1.png)
+![Platform Interface with Media](img/file_sys_2.png)
 
-The Learning Assistant is designed to handle the complexity of multi-modal educational content by intelligently integrating three simultaneous inputs into a structured document.
+#### Overview
 
-## Core Functionality
+Callimachus 2.0 is designed to handle the complexity of multi-modal educational content by intelligently integrating simultaneous inputs into a structured document. The platform is divided into two main windows:
 
-### Input Processing Model
+- **Media Window**: Displays PDF documents and slides, serving as the visual source for OCR data extraction.
+- **Document Window**: A Notion-style markdown editor powered by `BlockNote`, where the user takes notes, edits text, and interacts with the AI.
 
-The system processes **three simultaneous inputs** for each learning session:
+#### Core Architecture & Engines
 
-- **Audio transcription**: Detailed explanations, context, and verbal insights from lectures
-- **Slide text**: Structured content, key points, and visual information from presentations
-- **Student notes**: Personal insights, emphasis, questions, and connections (handwritten or digital)
+Instead of forcing one LLM to do everything, the backend utilizes a highly specialized, multi-agent LangGraph system:
 
-### Decision Making Process
+![Agent Architecture Diagram](img/agent_schematic.jpeg)
 
-For each set of three simultaneous inputs, the assistant:
+- **The Agent Model (The Manager)**: Evaluates incoming multimodal payloads (audio, OCR, notes) to check for contradictions. It decides whether it has enough information to proceed or needs to pause execution to ask the user a clarifying question.
+- **The Compiling Model (The Writer)**: Takes the raw data, applies formatting preferences, and writes the final markdown text using tools like `create_paragraph`.
+- **The Memory Model (The Observer)**: Silently watches how you answer questions and request edits, permanently updating your profile preferences in the background.
 
-1. **Analyzes all three sources** simultaneously to understand the complete learning context
-2. **Decides placement strategy**:
-   - Continue with current paragraph (content directly relates to existing section)
-   - Resume an old paragraph (content relates to previously discussed topic)
-   - Create new section (content introduces new topic)
-3. **Synthesizes information** from all three sources into coherent, integrated content
-4. **Enhances content** by adding visual aids when beneficial
-5. **Asks for clarification** when sources conflict or information is unclear
-6. **Marks completion** when three-source integration is finished
+![Execution Flow Graph](img/agent_graph.png)
 
-## Project Structure
+#### Payload Extraction
 
-```
-src/learning_assistant/
-├── __init__.py
-├── configuration.py          # Configuration settings
-├── learning_assistant.py     # Main assistant implementation
-├── prompts.py               # Prompt templates for different workflows
-├── schemas.py               # Data schemas and models
-├── utils.py                 # Utility functions for content processing
-└── tools/
-    ├── __init__.py
-    ├── base.py              # Tool management and loading
-    └── default/
-        ├── learning_tools.py      # Core learning assistant tools
-        └── prompt_templates.py    # Tool-specific prompt templates
-```
+The system captures the physical learning environment through two specialized pipelines:
 
-## Workflow Types
+- **Audio Pipeline (Continuous Stream)**: Uses WebSockets to stream audio to a FastAPI backend. It leverages Silero VAD (Voice Activity Detection) to chop audio during pauses, sending chunks to Faster-Whisper for blazing-fast, local real-time transcription.
+- **PDF Pipeline (Stateful Data)**: Uses PyMuPDF (`fitz`) to instantly extract accurate digital text from slides. Extraction is triggered natively via browser `CustomEvent` listeners whenever the user changes the page in the Media Window, guaranteeing high performance without constant React re-renders.
 
-The system supports different workflow configurations for three-source processing:
+#### Human-In-The-Loop (HITL) Feature
 
-1. **Standard Processing**: Autonomous integration of audio, slides, and notes
-2. **Human-in-the-Loop (HITL)**: Includes user questions for resolving conflicts between sources -> **TODO**
-3. **Memory-Enabled**: Maintains context across sessions for learning continuity -> **TODO**
+The multi-agent system features robust asynchronous communication to handle conflicting sources without disrupting the user's note-taking flow:
 
-## Getting Started
+1.  **Pending Questions**: When the Agent Model detects a contradiction, it freezes the LangGraph thread using an `interrupt()` and sends the question to the frontend.
+2.  **Yellow Dot Indicators**: Instead of a disruptive popup, a polite yellow dot appears in the margin next to the specific paragraph.
+    ![HITL Yellow Dot](img/auc_1.png)
+3.  **Resolution Popover**: When the user is ready, clicking the dot opens a popover to provide context. The user's answer updates the system's memory and unfreezes the graph to complete the paragraph generation.
+    ![HITL Clarification Popover](img/auc_2.png)
 
-1. Install dependencies:
+#### Rewrite Requests & Active Learning
 
-   ```bash
-   # Create and activate a virtual environment (with name callimacus_env)
-   python3 -m venv callimacus_env
-   source callimacus_env/bin/activate
+Users can actively request modifications to the compiled text directly through the UI.
 
-   # Ensure you have a recent version of pip (required for editable installs with pyproject.toml)
-   python3 -m pip install --upgrade pip
+![Rewrite Toolbar](img/request_1.png)
+![Rewrite Input Popover](img/request_2.png)
 
-   # Install the package in editable mode
-   pip install -e .
-   ```
+When a rewrite is submitted:
 
-2. Run the local deployment:
-   ```bash
-   source .venv/bin/activate && langgraph dev
-   ```
-3. Test input:
+1.  **Permanent Learning**: The `memory_model` instantly updates the "Compiler Profile" in RAM with the user's stylistic preference (e.g., "Make it a bulleted list").
+2.  **Surgical Synchronization**: The agent regenerates the text, and the frontend perfectly hot-swaps the old UI blocks with the new markdown in the BlockNote editor, flashing green to indicate success.
 
-   ```python
-   content_input = {
-    "audio_transcription": "Let's talk about Storage Limitation, it's a principle that requires that personal data must not be maintained for longer than is necessary. For Example, suppose that an agent starts an action after eight years, nine years from the determination of the agreement, the employer do not have the optimal evidence, it's a proof for demonstrating, demonstrating for instance, that he acted in a lawful way, because he stored data for a period of time, not sufficient to the evidence, this is the foreman most trading, it's lawful, it's lawful behavior",
-    "documentation": "Storage Limitation\nThe storage limitation principle requires that personal data must not be maintained for longer than is necessary to fulfil the goal of their collection. Data must be erased when the data processing purpose is achieved. This means that storing any data longer than necessary is not permitted (art. 5.1.e).",
-    "student_notes": "### Storage Limitation: personal data must not be maintained for longer that is necessary",
-    "document_thread": ""
-   }
-   ```
+#### Learning through agentic memory
 
-## Running Tests
+The agent improves over time through a sophisticated dual-layer memory system that separates immediate task context from long-term user preferences.
 
-We can run small tests on our system by using the `learning_dataset.py` dataset
+- The first layer is the single-thread document memory (`MemorySaver`), which simply tracks the specific history and data gathered during the active conversation about a single document or paragraph.
+- The second, more advanced layer is the cross-thread profile memory (`InMemoryStore`), which acts as the agent's persistent learning center.
 
-### Testing Triage Router
+This long-term memory is divided into two distinct profiles: the **Agent Profile**, which learns behavioral rules based on how you answer Human-in-the-Loop (HITL) clarification questions (e.g., learning that you prefer audio context over OCR when they conflict), and the **Compiler Profile**, which learns your specific stylistic and formatting preferences.
 
-We can run the command
+#### Execution Flow & Performance Management
 
-```bash
-python3 ./tests/test_triage.py
-```
+To avoid React lag from constant audio/OCR injections, the Document Window tracks everything through a "Shadow Register" using `useRef`.
 
-To see how the triage router classifies the inputs in the dataset, the final results can be seen in the langchain portal
+The user's notes are logically grouped into "Buckets" based on headings. Once the user stops modifying a bucket and moves the cursor away, a 20-second countdown begins. During this time, background audio and OCR strings are silently gathered in the bucket's hidden arrays. Once 20 seconds pass, the entire multimodal payload is bundled and sent to the LLM backend for processing.
 
-![Test Results](img/Triage_Evaluation.png)
+#### Workflow Types
 
-### Testing Learning Assistant
+The system supports the following workflows:
 
-We can then run our learning_assistant against a larger test suite.
+1.  **Standard Processing**: Autonomous integration of audio, slides, and notes.
+2.  **Human-in-the-Loop (HITL)**: Asynchronous conflict resolution using unobtrusive margin indicators.
+3.  **Memory-Enabled**: Dual-layer memory system tracking single-thread document history and cross-thread behavioral profiles.
 
-```
-! LANGSMITH_TEST_SUITE='Learning assistant: Test Full Response Interrupt' LANGSMITH_EXPERIMENT='learning_assistant' AGENT_MODULE=learning_assistant pytest tests/test_system.py
-```
+#### Future Enhancements
 
-![Test Results](img/End-to-End_Evaluation.png)
-
-What the test does:
-
-- We pass our dataset examples into functions that will run pytest and log to our `LANGSMITH_TEST_SUITE`
-- We use LLM-as-judge with a grading schema:
-- We evaluate the agent response relative to the criteria
-
-### Human-In-The-Loop Feature
-
-The multi-agent system offers a Human-In-The-Loop (HITL) feature that allows the user to interact with the agent and change, suggest or ignore things that are submitted by the agent. More in particular it is possible to:
-
-- **Ignore**: do not consider the question or discard the data to be written
-- **Respond**: answer to a question or provide an input to the agent on the current data to be written
-- **Accept**: accept the proposal of what to be written (not available for question)
-- **Edit**: modify the content of the data to be written (not available for question)
-
-In order to have a more interactive demo, once we launch our local deployment using
-
-```bash
-source .venv/bin/activate && langgraph dev
-```
-
-It is possible to see the interrupt data and handle it through the UI provided at [dev.agentinbox.ai](https://dev.agentinbox.ai/). To connect with the graph we simply input:
-
-- Graph name: the name from the `langgraph.json` file (`learning_assistant_hitl`)
-- Graph URL: `http://127.0.0.1:2024/`
-
-## Future Enhancements
-
-- **Advanced search**: Semantic similarity for better content placement across three sources
-- **Conflict resolution**: Intelligent handling of contradictory information between sources
-- **Multi-document support**: Managing multiple related documents and sessions
-- **Visual processing**: Direct image and diagram analysis from slides
-- **Collaborative features**: Multi-user document editing and shared learning spaces
-- **Export formats**: PDF, HTML, and other output formats
-- **Source weighting**: Configurable importance levels for different input types
-
-## Configuration
-
-The assistant can be configured for different educational contexts through the `configuration.py` file, including:
-
-- Three-source integration preferences
-- Content synthesis strategies
-- Enhancement generation settings
-- Document structure templates
-- Conflict resolution patterns
-- User interaction preferences
+- Handle context overflow when a paragraph is deleted.
+- **Advanced search**: Semantic similarity for better content placement across three sources.
+- **Visual processing**: Direct image and diagram analysis from slides via Vision LLMs.
+- **Collaborative features**: Multi-user document editing and shared learning spaces.

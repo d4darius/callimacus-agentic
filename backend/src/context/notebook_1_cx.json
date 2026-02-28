@@ -1,0 +1,56 @@
+{
+    "doc-start": {
+        "heading": "Document Start",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": ""
+    },
+    "block-1-intro-heading": {
+        "heading": "Intro",
+        "audio": "[MOCK AUDIO: 'The professor mentioned 1945']  [MOCK AUDIO: 'The professor mentioned 1945'] ",
+        "ocr": "[MOCK OCR: 'Slide 4: GDP Growth'] ",
+        "additional_notes": "",
+        "notes": "In this introductory section, the professor referenced the year 1945, which may indicate a historical context or starting point for the discussion. The slide titled \"GDP Growth\" suggests that the lecture will focus on economic development, possibly examining trends in GDP growth since 1945. As part of this session, Dario is testing the data handling capabilities of his text editor, ensuring that notes are properly saved and modified during the lecture. This sets the stage for a deeper exploration of economic growth patterns in the post-World War II era."
+    },
+    "23eed5e4-71ed-47c7-a200-5be5ea6535d4": {
+        "heading": "GDP",
+        "audio": "[MOCK AUDIO: 'So as I was saying, GDP stands for General Data Protection'] ",
+        "ocr": "[MOCK OCR: 'Slide 4: GDP Growth, the GDP is the Gross Domestic Product (GDP)'] ",
+        "additional_notes": "Important context from user: regarding 'There is a conflict regarding the meaning of GDP. The audio states that GDP stands for General Data Protection, while the OCR and notes refer to GDP as Gross Domestic Product, an economic indicator. Which definition should be used for this context?', the answer is 'It's Gross Domestic product'.",
+        "notes": "GDP stands for Gross Domestic Product. It is the primary economic indicator used to assess the wellness and economic health of a population. GDP measures the total value of goods and services produced within a country's borders over a specific period.\n\nGDP stands for Gross Domestic Product. It is a key economic indicator that measures the total value of all goods and services produced within a country's borders over a specific period of time. Although there was a misstatement in the audio transcription, where GDP was referred to as \"General Data Protection,\" the correct definition in the context of economics\u2014and as confirmed by both the slide text and student notes\u2014is Gross Domestic Product. GDP is widely used as a primary metric for assessing a country's economic growth and overall economic health, providing valuable insights into the performance and development of national economies."
+    },
+    "e2312b04-723c-4f63-af6a-01a4bf674f6c": {
+        "heading": "Introduction and Definitions",
+        "audio": "",
+        "ocr": "[PDF PAGE CONTENT]: Deep Neural Network s From Fully-Connected Nets to Compression Pietro Michiardi 15/02/2026, 11:49 Deep Learning \u2013 Deep Neural Networks https://eurecom-ds.github.io/deeplearning/editions/2026/slides/deep_nets.html?print-pdf#/title-slide 1/135  [PDF PAGE CONTENT]: Fully Connect ed Nets 15/02/2026, 11:49 Deep Learning \u2013 Deep Neural Networks https://eurecom-ds.github.io/deeplearning/editions/2026/slides/deep_nets.html?print-pdf#/title-slide 2/135  [PDF PAGE CONTENT]: Goal: estimate a function   from data; most ML problems can be cast this way. Simple motivating examples: Figure\u00a01: Regression Figure\u00a02: Classification We only observe samples   and minimize empirical risk to approximate  y = f \u2217(x) Note xi, yi f \u2217 Introduction and Definitions 15/02/2026, 11:49 Deep Learning \u2013 Deep Neural Networks https://eurecom-ds.github.io/deeplearning/editions/2026/slides/deep_nets.html?print-pdf#/title-slide 3/135 ",
+        "additional_notes": "",
+        "notes": "Deep Neural Networks (DNNs) are powerful models in machine learning whose primary goal is to estimate an unknown function from data. Most machine learning problems, including regression and classification, can be formulated as the task of learning a function \\( f^* \\) that maps input samples \\( xi \\) to outputs \\( yi \\). In practice, we only observe a finite set of sample pairs \\((xi, yi)\\), and the objective is to minimize the empirical risk, thereby reducing the approximation error between the predicted and true outputs. This foundational approach underpins the use of fully-connected neural networks and motivates the development of deeper architectures for improved function approximation."
+    },
+    "7c2a52bb-40be-455a-bc29-a72c40de1e8a": {
+        "heading": "Definition",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "feed forward networks are architectures designed what about this"
+    },
+    "f66ce3c5-e5f4-457a-9c2b-74b311e8b9eb": {
+        "heading": "Trigger",
+        "audio": "",
+        "ocr": "",
+        "additional_notes": "",
+        "notes": "para let's try putting data"
+    },
+    "1ebc1e1a-f42a-49f8-ad1a-787577c96861": {
+        "audio": " Americans do it Russians, do it on Excel, and quite a lot of the best.  There is no certainty if not those of the vote,  Pakavalo, Tracris and international international and neocolonialism declared.   because we will have to be sure. So since it is never as possible, let's make a small game  and we ask ourselves if our country should go to war today. We will be ready. ",
+        "ocr": "",
+        "notes": "Certainly! Since only the audio transcription contains content, I will synthesize it into a cohesive, well-structured paragraph, ensuring clarity and logical flow. If you provide OCR text or student notes later, I can further integrate them for even greater cohesion.\n\n---\n\n### Should Our Country Go to War? \u2013 A Thought Experiment\n\nAcross the world, different nations approach critical decisions\u2014such as whether to go to war\u2014in diverse ways. For example, Americans and Russians might use tools like Excel to analyze scenarios, while others rely on different methods. However, regardless of the approach, there is rarely absolute certainty in such decisions, especially when factors like international relations, neocolonialism, and the legitimacy of voting outcomes come into play. Given this inherent uncertainty, it is valuable to engage in thought experiments: for instance, asking ourselves whether our own country would be ready to go to war if the situation arose today. This exercise encourages us to critically assess preparedness and the complex factors influencing such significant national choices.",
+        "additional_notes": ""
+    },
+    "4ffa1ae9-f8a7-4c2e-8002-a52902fb173d": {
+        "audio": "",
+        "ocr": "",
+        "notes": "It appears that you have not provided the actual content from the three sources (audio transcription, OCR text, and student notes). Please provide the text or excerpts from each of these sources, and I will synthesize them into a cohesive, well-structured paragraph according to your preferences.",
+        "additional_notes": ""
+    }
+}

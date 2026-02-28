@@ -1,0 +1,24 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# AI Engine (LangChain & LangGraph)
+langchain
+langchain-core
+langgraph
+langchain-openai
+
+# Data Validation & Environment
+pydantic
+python-dotenv
+
+# PDF extraction
+pymupdf
+python-multipart
+
+# Audio ML Pipeline
+faster-whisper
+torch
+torchaudio
+pydub
+numpy<2.0.0
