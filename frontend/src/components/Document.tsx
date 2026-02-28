@@ -174,7 +174,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
   const activeHeadingRef = useRef<string>("doc-start");
   // UNBOUNDED BUFFER: to be flushed into paragraph as soon as we write in one
   const unassignedPagesRef = useRef<string[]>([]);
-  const isSyncingRef = useRef<boolean>(false);
+  const syncingHeadingRef = useRef<string | null>(null);
 
   // 0) MASTER SESSION TOGGLE
   useEffect(() => {
@@ -301,24 +301,67 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     return () => window.removeEventListener("resize", updatePositions);
   }, [pendingQuestions]);
 
-  // HELPER: Reload Editor Sync (Fetches backend AST changes)
-  const syncEditorWithBackend = async () => {
+  // 💡 THE FIX: Surgical Block Replacement
+  const injectSurgicalBlocks = async (headingId: string, markdown: string) => {
     if (!editor) return;
+
+    syncingHeadingRef.current = headingId; // Lock ONLY this specific heading from tagging this as a draft!
+
     try {
-      const rawData = await fetchDocContent(docId);
-      const parsed = JSON.parse(rawData);
-      if (Array.isArray(parsed)) {
-        // Lock the editor!
-        isSyncingRef.current = true;
-        editor.replaceBlocks(editor.document, parsed);
-        // Unlock the editor after React finishes rendering
-        setTimeout(() => {
-          isSyncingRef.current = false;
-        }, 100);
+      // 1. Let BlockNote natively parse the AI's Markdown
+      const newBlocks = await editor.tryParseMarkdownToBlocks(markdown);
+
+      // 2. Find the exact boundaries of the target paragraph in the document
+      const currentDoc = editor.document;
+      let startIndex = -1;
+      let endIndex = currentDoc.length;
+
+      for (let i = 0; i < currentDoc.length; i++) {
+        if (currentDoc[i].id === headingId) {
+          startIndex = i;
+        } else if (startIndex !== -1 && currentDoc[i].type === "heading") {
+          endIndex = i;
+          break;
+        }
       }
+
+      if (startIndex !== -1) {
+        let blocksToInsert = newBlocks;
+
+        // 3. Keep the original heading ID intact! Just update its text.
+        if (newBlocks.length > 0 && newBlocks[0].type === "heading") {
+          editor.updateBlock(headingId, { content: newBlocks[0].content });
+          blocksToInsert = newBlocks.slice(1);
+        }
+
+        // 4. Delete the old draft body
+        const blocksToRemove = currentDoc.slice(startIndex + 1, endIndex);
+        if (blocksToRemove.length > 0) {
+          editor.removeBlocks(blocksToRemove);
+        }
+
+        // 5. Insert the perfectly formatted AI body!
+        if (blocksToInsert.length > 0) {
+          editor.insertBlocks(blocksToInsert, headingId, "after");
+        }
+      }
+
+      // Flash green to indicate success
+      editor.updateBlock(headingId, { props: { backgroundColor: "green" } });
+      setTimeout(() => {
+        editor.updateBlock(headingId, {
+          props: { backgroundColor: "default" },
+        });
+      }, 2000);
     } catch (err) {
-      console.error("Failed to sync AST from backend", err);
-      isSyncingRef.current = false; // Failsafe unlock
+      console.error("Failed to inject AI blocks:", err);
+    } finally {
+      // Unlock the editor so the user can type normally again
+      setTimeout(() => {
+        if (syncingHeadingRef.current === headingId) {
+          syncingHeadingRef.current = null;
+        }
+      }, 100);
     }
   };
 
@@ -442,7 +485,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         registerEntry.status = "processed";
 
         // Pull the fresh AST array from the backend and update the UI
-        await syncEditorWithBackend();
+        await injectSurgicalBlocks(headingId, data.markdown);
 
         // Flash green briefly to indicate success
         if (editor) {
@@ -517,7 +560,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         }));
       } else if (data.status === "completed") {
         sectionRegister.current[headingId].status = "processed";
-        await syncEditorWithBackend();
+        await injectSurgicalBlocks(headingId, data.markdown);
 
         if (editor) {
           editor.updateBlock(headingId, {
@@ -568,7 +611,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         console.log(`[SUCCESS] Paragraph ${headingId} rewritten.`);
         // Update status, pull new AST, and flash green
         sectionRegister.current[headingId].status = "processed";
-        await syncEditorWithBackend();
+        await injectSurgicalBlocks(headingId, data.markdown);
 
         if (editor) {
           editor.updateBlock(headingId, {
@@ -681,8 +724,13 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         !registerEntry ||
         registerEntry.contentSnapshot !== currentContentStr
       ) {
-        // If the AI created this heading, it is born "processed"!
-        if (isSyncingRef.current) {
+        // Determine exactly what the AI is allowed to own
+        const isTarget = syncingHeadingRef.current === bucket.headingId;
+        const isNew = !registerEntry;
+        const isSyncing = syncingHeadingRef.current !== null;
+
+        // If the AI is syncing, protect the target heading AND any new subheadings it generated!
+        if (isSyncing && (isTarget || isNew)) {
           sectionRegister.current[bucket.headingId] = {
             status: "processed",
             contentSnapshot: currentContentStr,
@@ -690,7 +738,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
             audioContext: registerEntry?.audioContext || [],
             ocrContext: registerEntry?.ocrContext || [],
           };
-          return; // Skip the rest of the loop so it doesn't become a draft
+          return; // Skip so it doesn't become a draft
         }
 
         // Protect "processed" paragraphs: If the AI already finished this section,

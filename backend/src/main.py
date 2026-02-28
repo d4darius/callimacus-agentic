@@ -308,7 +308,14 @@ async def process_paragraph(payload: ProcessPayload):
         interrupt_payload = state.tasks[0].interrupts[0].value
         return {"status": "paused", "interrupt": interrupt_payload}
 
-    return {"status": "completed", "message": "Paragraph successfully generated and synced."}
+    par_data = doc.get_paragraph(payload.par_id)
+    new_notes = par_data.get("notes", "")
+
+    return {
+        "status": "completed", 
+        "message": "Paragraph successfully generated.",
+        "markdown": new_notes
+    }
 
 
 class ResumePayload(BaseModel):
@@ -337,7 +344,15 @@ async def resume_agent(payload: ResumePayload):
         interrupt_payload = state.tasks[0].interrupts[0].value
         return {"status": "paused", "interrupt": interrupt_payload}
         
-    return {"status": "completed", "message": "Conflict resolved and paragraph updated."}
+    doc = get_document(payload.doc_id)
+    par_data = doc.get_paragraph(payload.par_id)
+    new_notes = par_data.get("notes", "")
+
+    return {
+        "status": "completed", 
+        "message": "Conflict resolved and paragraph updated.",
+        "markdown": new_notes
+    }
 
 
 class RequestPayload(BaseModel):
@@ -371,7 +386,15 @@ async def request_rewrite(payload: RequestPayload):
     rewrite_prompt = f"The user requested a rewrite: '{payload.instruction}'. Use these notes: {current_notes}. Please invoke 'create_paragraph'."
 
     await agent.ainvoke({"messages": [HumanMessage(content=rewrite_prompt)]}, config)
-    return {"status": "completed", "message": "Memory updated and paragraph rewritten."}
+
+    par_data = doc.get_paragraph(payload.par_id)
+    new_notes = par_data.get("notes", "")
+
+    return {
+        "status": "completed", 
+        "message": "Memory updated and paragraph rewritten.",
+        "markdown": new_notes
+    }
 
 # ------------------------------------------
 # REAL-TIME AUDIO WEBSOCKET
