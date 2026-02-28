@@ -8,9 +8,9 @@ import json
 import uvicorn
 import fitz
 import asyncio
-import torch
 import time
 import numpy as np
+import concurrent.futures
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
@@ -58,8 +58,7 @@ CONTEXT_DIR = os.getenv("CONTEXT_DIR", "./context")
 # ------------------------------------------
 
 audio_model = None
-vad_model = None
-get_speech_timestamps = None
+ml_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 # ------------------------------------------
 # TESTING FUNCTION
@@ -122,7 +121,7 @@ def run_document_sanity_checks():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global audio_model, vad_model, get_speech_timestamps
+    global audio_model
     logger.info("🚀 Starting up Callimacus FastAPI Server...")
 
     # 0. Run unified architecture tests
@@ -146,7 +145,7 @@ async def lifespan(app: FastAPI):
             device="cpu", 
             compute_type="default", 
             local_files_only=True,
-            cpu_threads=4  
+            cpu_threads=2 
         )
         
     except FileNotFoundError:
@@ -379,82 +378,119 @@ async def request_rewrite(payload: RequestPayload):
 # ------------------------------------------
 
 @app.websocket("/api/ws/audio")
-@app.websocket("/api/ws/audio")
 async def websocket_audio_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("🎤 Client connected to Audio WebSocket")
     
-    audio_queue = asyncio.Queue()
+    # 💡 THE FIX: 3 Dedicated Queues to enforce strict single-file processing
+    audio_queue = asyncio.Queue()  # Holds raw binary chunks from frontend
+    ml_queue = asyncio.Queue()     # Holds completed sentences waiting for the AI
+    msg_queue = asyncio.Queue()    # Holds text waiting to be sent back to React
 
-    # --- THE HEAVY ML WORKER ---
-    # This function runs completely isolated in its own thread
-    def run_ml_pipeline(buffer_bytes):
-        start_time = time.time()
+    # --- STAGE 1: THE RECEIVER (FastAPI -> audio_queue) ---
+    async def receiver():
         try:
-            # 1. Convert Bytes to Float32 Array
+            while True:
+                chunk = await websocket.receive_bytes()
+                await audio_queue.put(chunk)
+        except WebSocketDisconnect:
+            logger.info("🎤 Client disconnected normally.")
+        except Exception as e:
+            logger.error(f"❌ WebSocket Receiver Error: {e}")
+
+    # --- STAGE 2: THE ENERGY GATE (audio_queue -> ml_queue) ---
+    async def energy_gate():
+        audio_buffer = bytearray()
+        silence_chunks = 0
+        is_recording = False
+        
+        while True:
+            chunk = await audio_queue.get()
+            if len(chunk) == 0: 
+                continue
+                
+            pcm_array = np.frombuffer(chunk, dtype=np.int16)
+            rms_volume = np.sqrt(np.mean(pcm_array.astype(np.float32)**2))
+            
+            if rms_volume > 200:
+                is_recording = True
+                silence_chunks = 0
+                audio_buffer.extend(chunk)
+                
+                # HARD CUTOFF: 10 seconds. (Failsafe if they literally scream for 10s straight)
+                if len(audio_buffer) > 320000:
+                    await ml_queue.put(bytes(audio_buffer))
+                    is_recording = False
+                    audio_buffer = bytearray()
+            else:
+                if is_recording:
+                    silence_chunks += 1
+                    audio_buffer.extend(chunk) 
+                    
+                    # SMART BREATH DETECTION
+                    # 1. Normal breath: ~0.5 seconds (2 chunks)
+                    # 2. Aggressive cutoff: If the buffer is over 5 seconds long, cut on a micro-pause (1 chunk)
+                    is_long_sentence = len(audio_buffer) > 160000
+                    
+                    if (is_long_sentence and silence_chunks >= 1) or (silence_chunks >= 2):
+                        await ml_queue.put(bytes(audio_buffer))
+                        is_recording = False
+                        audio_buffer = bytearray()
+                        silence_chunks = 0
+
+    # --- STAGE 3: THE STRICT ML WORKER (ml_queue -> msg_queue) ---
+    def run_transcription(buffer_bytes):
+        """This function is now safely isolated."""
+        try:
             pcm_array = np.frombuffer(buffer_bytes, dtype=np.int16)
             samples = pcm_array.astype(np.float32) / 32768.0
             
-            # 2. 💡 Run Faster-Whisper directly! 
-            # We pass vad_filter=True so it uses its native, crash-free Silero integration
-            segments, info = audio_model.transcribe(
-                samples, 
-                beam_size=5, 
-                language="en", 
-                condition_on_previous_text=False,
-                vad_filter=True, # 💡 Replaces our manual PyTorch implementation
-                vad_parameters=dict(min_silence_duration_ms=500) # Ignore short coughs/breaths
+            # CTranslate2 is completely safe here because we only process one at a time!
+            segments, _ = audio_model.transcribe(
+                samples, beam_size=5, language="en", condition_on_previous_text=False
+            )
+            return " ".join([s.text for s in segments]).strip()
+        except Exception as e:
+            logger.error(f"❌ Transcription Error: {e}")
+            return ""
+
+    async def ml_worker():
+        loop = asyncio.get_running_loop()
+        while True:
+            # Wait for a sentence to be ready
+            buffer_bytes = await ml_queue.get() 
+            
+            # 💡 THE FIX: Force the math into the immortal thread!
+            # Because it's always the exact same OS thread, the C++ memory never corrupts.
+            transcript = await loop.run_in_executor(
+                ml_executor, run_transcription, buffer_bytes
             )
             
-            transcript = " ".join([segment.text for segment in segments]).strip()
-            
-            process_time = time.time() - start_time
-            logger.debug(f"⏱️ ML Processing took {process_time:.2f}s")
-            
-            return transcript
-                
+            if transcript:
+                logger.debug(f"🗣️ Transcribed: {transcript}")
+                await msg_queue.put({"text": f" {transcript} "})
+
+    # --- STAGE 4: THE SENDER (msg_queue -> FastAPI) ---
+    async def sender():
+        try:
+            while True:
+                msg = await msg_queue.get()
+                await websocket.send_json(msg)
         except Exception as e:
-            logger.error(f"❌ ML Pipeline Error: {e}")
-        return ""
+            logger.error(f"❌ Sender Error: {e}")
 
-    # --- THE ASYNC CONSUMER ---
-    # This watches the queue and offloads work to the ML thread
-    async def process_worker():
-        audio_buffer = bytearray()
-        while True:
-            # 1. Grab chunks from the queue safely
-            chunk = await audio_queue.get()
-            audio_buffer.extend(chunk)
-            
-            # 2. When we have 1.5 seconds of audio...
-            if len(audio_buffer) >= 48000:
-                buffer_to_process = bytes(audio_buffer) # Snapshot the bytes
-                audio_buffer = bytearray() # Instantly reset the buffer
-                
-                # 3. Offload to a background thread so the WebSocket stays alive!
-                transcript = await asyncio.to_thread(run_ml_pipeline, buffer_to_process)
-                
-                if transcript:
-                    logger.debug(f"🗣️ Sending to frontend: {transcript}")
-                    await websocket.send_json({"text": f" {transcript} "})
-
-    # Start the background worker
-    worker_task = asyncio.create_task(process_worker())
+    # Boot up the background workers
+    gate_task = asyncio.create_task(energy_gate())
+    ml_task = asyncio.create_task(ml_worker())
+    send_task = asyncio.create_task(sender())
     
-    # --- THE WEBSOCKET RECEIVER ---
+    # The endpoint locks onto the receiver. If the browser disconnects, clean up.
     try:
-        while True:
-            # This loop NEVER gets blocked now. It just catches bytes and throws them in the queue.
-            chunk = await websocket.receive_bytes()
-            await audio_queue.put(chunk)
-            
-    except WebSocketDisconnect:
-        logger.info("🎤 Client disconnected from Audio WebSocket")
-    except Exception as e:
-        logger.error(f"❌ WebSocket Error: {e}")
+        await receiver()
     finally:
-        # Clean up the worker when the user disconnects
-        worker_task.cancel()
+        gate_task.cancel()
+        ml_task.cancel()
+        send_task.cancel()
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)

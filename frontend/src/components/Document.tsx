@@ -247,7 +247,13 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
   // HELPER: Calculate coordinates for the yellow indicator dots
   useEffect(() => {
     const updatePositions = () => {
-      if (!containerRef.current) return;
+      // If there are no pending questions, just clear the positions safely and abort
+      if (!containerRef.current || Object.keys(pendingQuestions).length === 0) {
+        setIndicatorPositions((prev) =>
+          Object.keys(prev).length === 0 ? prev : {},
+        );
+        return;
+      }
 
       const containerRect = containerRef.current.getBoundingClientRect();
       const newPositions: Record<string, { top: number; left: number }> = {};
@@ -257,13 +263,20 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         if (blockEl) {
           const blockRect = blockEl.getBoundingClientRect();
           newPositions[headingId] = {
-            // Calculate position relative to our wrapper div
-            top: blockRect.top - containerRect.top + blockRect.height / 2 - 11, // Center vertically, adjust for dot size
-            left: blockRect.left - containerRect.left - 35, // Push it 35px into the left margin
+            top: blockRect.top - containerRect.top + blockRect.height / 2 - 11,
+            left: blockRect.left - containerRect.left - 35,
           };
         }
       });
-      setIndicatorPositions(newPositions);
+
+      // 💡 THE FIX: Break the infinite loop!
+      // Only trigger a React state update if the coordinates actually changed.
+      setIndicatorPositions((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(newPositions)) {
+          return prev; // No change = No re-render!
+        }
+        return newPositions;
+      });
     };
 
     // Run calculation
@@ -272,7 +285,9 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     // Recalculate if the window resizes
     window.addEventListener("resize", updatePositions);
     return () => window.removeEventListener("resize", updatePositions);
-  }, [pendingQuestions, editor?.document]);
+
+    // 💡 THE FIX: Removed `editor?.document` from dependencies to stop the loop
+  }, [pendingQuestions]);
 
   // HELPER: Reload Editor Sync (Fetches backend AST changes)
   const syncEditorWithBackend = async () => {
@@ -353,19 +368,6 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     window.addEventListener("injectAudio", handleInjectAudio);
     return () => window.removeEventListener("injectAudio", handleInjectAudio);
   }, []); // Safe empty dependency array because we only use mutable refs!
-
-  // // EXTERNAL CONTEXT INJECTOR: Your external audio/ocr components will call this to secretly dump data into the active bucket
-  // const injectBackgroundContext = (type: "audio" | "ocr", rawText: string) => {
-  //   const activeId = activeHeadingRef.current;
-  //   if (!sectionRegister.current[activeId]) return;
-
-  //   if (type === "audio") {
-  //     sectionRegister.current[activeId].audioContext.push(rawText);
-  //   } else {
-  //     sectionRegister.current[activeId].ocrContext.push(rawText);
-  //   }
-  //   console.log(`Injected ${type} data into heading: ${activeId}`);
-  // };
 
   // 2) SEND TO LLM
   const sendSectionToLLM = async (headingId: string) => {

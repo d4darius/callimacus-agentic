@@ -41,7 +41,11 @@ function AudioStreamer({ isSessionActive }: AudioStreamerProps) {
         socketRef.current = ws;
 
         ws.onopen = () => console.log("🎤 WebSocket Connected");
-        ws.onclose = () => console.log("🎤 WebSocket Disconnected");
+        ws.onclose = (e) =>
+          console.log(
+            `🎤 WebSocket Disconnected. Code: ${e.code}, Reason: ${e.reason || "None"}`,
+          );
+        ws.onerror = (e) => console.error("❌ WebSocket Error Event Triggered");
 
         // 2. Listen for text coming BACK from Python and broadcast it
         ws.onmessage = (event) => {
@@ -76,15 +80,42 @@ function AudioStreamer({ isSessionActive }: AudioStreamerProps) {
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
         processorRef.current = processor;
 
+        const dummyGain = audioContext.createGain();
+        dummyGain.gain.value = 0.00001;
+
+        // 💡 DEBUG: Track how many chunks we send
+        let chunkCount = 0;
+
         processor.onaudioprocess = (e) => {
           if (ws.readyState === WebSocket.OPEN) {
             const float32Array = e.inputBuffer.getChannelData(0);
             const int16Array = new Int16Array(float32Array.length);
+
+            let maxVolume = 0; // 💡 DEBUG: Find the loudest sound in this chunk
+
             for (let i = 0; i < float32Array.length; i++) {
               let s = Math.max(-1, Math.min(1, float32Array[i]));
               int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+
+              // 💡 DEBUG: Track volume
+              if (Math.abs(int16Array[i]) > maxVolume) {
+                maxVolume = Math.abs(int16Array[i]);
+              }
             }
             ws.send(int16Array.buffer);
+
+            // 💡 DEBUG: Print a heartbeat to the Chrome Console every ~2 seconds
+            chunkCount++;
+            if (chunkCount % 10 === 0) {
+              console.log(
+                `[AudioStreamer] 📡 Sent 10 chunks. Latest Max Volume: ${maxVolume}`,
+              );
+              if (maxVolume === 0) {
+                console.warn(
+                  "⚠️ WARNING: Audio is dead silent (0 volume). Chrome might have muted the track!",
+                );
+              }
+            }
           }
         };
 
