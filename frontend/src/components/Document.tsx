@@ -79,8 +79,8 @@ const RewriteToolbarButton = () => {
       style={{
         background: "transparent",
         border: "none",
-        color: "#a970ff",
-        fontWeight: "bold",
+        color: "var(--accent-blue)", // Removed purple
+        fontWeight: "500",
         cursor: "pointer",
         fontSize: "13px",
         display: "flex",
@@ -89,6 +89,19 @@ const RewriteToolbarButton = () => {
         padding: "0 8px",
       }}
     >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
       Rewrite
     </button>
   );
@@ -737,7 +750,10 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
   if (error || docname === "")
     return (
       <div className="empty-state-container">
-        <img src="src/assets/Logo_d4.png" className="grayscale-logo" />
+        <img
+          src="src/assets/Callimachus_Logo_White_06.png"
+          className="grayscale-logo"
+        />
         <p className="empty-state-text">Please open a notebook</p>
       </div>
     );
@@ -766,17 +782,18 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         />
       </BlockNoteView>
       {/* REWRITE INSTRUCTION POPOVER */}
+      {/* REWRITE INSTRUCTION POPOVER */}
       {rewriteHeadingId && (
         <div
           style={{
             position: "fixed",
-            top: "20%", // Keep it high on the screen, out of the way of the text
+            top: "20%",
             left: "50%",
             transform: "translateX(-50%)",
-            background: "#2a2a2a",
+            background: "var(--bg-media)",
             padding: "16px",
             borderRadius: "8px",
-            borderTop: "4px solid #a970ff", // Purple accent for the AI Compiler
+            borderTop: "3px solid var(--accent-blue)", // Clean blue line
             boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
             zIndex: 10000,
             width: "400px",
@@ -785,7 +802,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
           <h4
             style={{
               margin: "0 0 12px 0",
-              color: "#a970ff",
+              color: "var(--text-heading)", // Removed purple header
               fontSize: "14px",
               display: "flex",
               alignItems: "center",
@@ -816,8 +833,8 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
                 padding: "6px 12px",
                 fontSize: "12px",
                 background: "transparent",
-                border: "1px solid #555",
-                color: "#aaa",
+                border: "1px solid var(--border-color)",
+                color: "var(--text-muted)",
                 borderRadius: "4px",
                 cursor: "pointer",
               }}
@@ -829,10 +846,10 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
               style={{
                 padding: "6px 12px",
                 fontSize: "12px",
-                background: "#a970ff",
+                background: "var(--accent-blue)",
                 border: "none",
                 color: "white",
-                fontWeight: "bold",
+                fontWeight: "500",
                 borderRadius: "4px",
                 cursor: "pointer",
               }}
@@ -854,30 +871,32 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
           <div
             key={headingId}
             onClick={() => {
-              // Toggle the popover on/off when clicking the dot
               setActiveQuestionId(isActive ? null : headingId);
-              if (!isActive) setHitlInput(""); // Clear input when opening a new one
+              if (!isActive) setHitlInput("");
             }}
             style={{
               position: "absolute",
               top: `${pos.top}px`,
               left: `${pos.left}px`,
-              width: "22px",
-              height: "22px",
-              backgroundColor: isActive ? "#ff922b" : "#fcc419", // Darker orange if open
+              width: "20px",
+              height: "20px",
+              backgroundColor: isActive
+                ? "var(--state-warning)"
+                : "var(--bg-navbar)",
+              border: `2px solid var(--state-warning)`,
               borderRadius: "50%",
               cursor: "pointer",
               boxShadow: isActive
-                ? "0 0 10px rgba(255,146,43,0.5)"
+                ? "0 0 12px var(--state-warning-alpha)"
                 : "0 2px 6px rgba(0,0,0,0.4)",
               zIndex: 100,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#222",
+              color: isActive ? "#111" : "var(--state-warning)",
               fontWeight: "bold",
-              fontSize: "14px",
-              transition: "transform 0.1s ease-in-out",
+              fontSize: "12px",
+              transition: "all 0.15s ease",
               transform: isActive ? "scale(1.1)" : "scale(1)",
             }}
             title="Clarification Needed"
@@ -892,16 +911,16 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
         <div
           style={{
             position: "absolute",
-            top: `${indicatorPositions[activeQuestionId].top + 30}px`, // Place right below the dot
+            top: `${indicatorPositions[activeQuestionId].top + 30}px`,
             left: `${indicatorPositions[activeQuestionId].left}px`,
-            background: "#2a2a2a",
+            background: "var(--bg-media)",
             padding: "16px",
             borderRadius: "8px",
-            borderLeft: "4px solid #ff922b",
+            borderLeft: "3px solid var(--state-warning)",
             boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
             zIndex: 10000,
             width: "350px",
-            color: "#e0e0e0",
+            color: "var(--text-main)",
           }}
         >
           <div
@@ -961,10 +980,10 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
               style={{
                 padding: "6px 12px",
                 fontSize: "12px",
-                background: "#ff922b",
+                background: "var(--state-warning)",
                 border: "none",
                 color: "#111",
-                fontWeight: "bold",
+                fontWeight: "500",
                 borderRadius: "4px",
                 cursor: "pointer",
               }}
@@ -974,72 +993,6 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
           </div>
         </div>
       )}
-
-      {/* FLOATING DEBUGGER PANEL 
-      <div
-        style={{
-          position: "fixed",
-          bottom: 20,
-          right: 20,
-          background: "#222",
-          padding: "10px",
-          borderRadius: "8px",
-          border: "1px solid #444",
-          display: "flex",
-          flexDirection: "column",
-          gap: "8px",
-          zIndex: 9999,
-        }}
-      >
-        <span
-          style={{
-            color: "#aaa",
-            fontSize: "12px",
-            textAlign: "center",
-            fontWeight: "bold",
-          }}
-        >
-          LLM Debugger
-        </span>
-        <button
-          onClick={() =>
-            injectBackgroundContext(
-              "audio",
-              "[MOCK AUDIO: 'So as I was saying, GDP stands for General Data Protection'] ",
-            )
-          }
-          style={{
-            background: "#4dabf7",
-            color: "white",
-            border: "none",
-            padding: "6px 12px",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px",
-          }}
-        >
-          🎤 Inject Audio
-        </button>
-        <button
-          onClick={() =>
-            injectBackgroundContext(
-              "ocr",
-              "[MOCK OCR: 'Slide 4: GDP Growth, the GDP is the Gross Domestic Product (GDP)'] ",
-            )
-          }
-          style={{
-            background: "#20c997",
-            color: "white",
-            border: "none",
-            padding: "6px 12px",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px",
-          }}
-        >
-          📷 Inject OCR
-        </button>
-      </div> */}
     </div>
   );
 }
