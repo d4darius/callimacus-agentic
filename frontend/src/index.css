@@ -1,15 +1,33 @@
 :root {
-  --nvbh: 45px; /* Thinner, sleeker navbar */
-  --mwd: 40vw; /* Use viewport width for a more responsive split */
+  --nvbh: 45px;
+  --mwd: 40vw;
 
-  /* Notion-style Dark Mode Palette */
-  --bg-navbar: #202020;
-  --bg-document: #191919;
-  --bg-media: #252525;
-  --text-main: rgba(255, 255, 255, 0.85);
-  --text-heading: rgba(255, 255, 255, 0.95);
+  /* Modern Monochromatic Dark Theme (Zinc/Slate base) */
+  --bg-navbar: #121212;
+  --bg-document: #18181b;
+  --bg-media: #1f2937;
 
-  /* System font stack for that native, crisp look */
+  --text-main: #e2e8f0;
+  --text-heading: #f8fafc;
+  --text-muted: #94a3b8;
+
+  --border-color: rgba(255, 255, 255, 0.1);
+
+  /* Semantic UI Variables */
+  --accent-blue: #3b82f6; /* Primary brand/action color */
+  --accent-blue-hover: #2563eb;
+  --accent-blue-alpha: rgba(59, 130, 246, 0.2);
+
+  --state-idle: #334155; /* Replaces the bright green idle button with a sleek dark gray */
+  --state-idle-hover: #475569;
+
+  --state-record: #ef4444; /* Kept red for active recording */
+  --state-record-hover: #dc2626;
+
+  --state-success: #10b981; /* Clean emerald green for processing success */
+  --state-warning: #f59e0b; /* Amber/Yellow for HITL questions */
+  --state-warning-alpha: rgba(245, 158, 11, 0.2);
+
   --font-stack:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
@@ -87,34 +105,40 @@ NAVBAR
 
 /* Start/Stop Session Button */
 .session-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: white;
   border: none;
-  padding: 6px 16px;
+  padding: 6px 14px;
   border-radius: 6px;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 0.85rem;
   cursor: pointer;
   transition:
     background-color 0.2s ease,
-    transform 0.1s ease,
-    box-shadow 0.2s ease;
+    transform 0.1s ease;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .session-btn:active {
-  transform: scale(0.97); /* Nice little click effect */
+  transform: scale(0.97);
 }
 
 .session-btn.recording {
-  background-color: #ff4b4b;
+  background-color: var(--state-record);
+}
+
+.session-btn.recording:hover {
+  background-color: var(--state-record-hover);
 }
 
 .session-btn.idle {
-  background-color: #20c997;
+  background-color: var(--state-idle);
 }
 
 .session-btn.idle:hover {
-  background-color: #1eb386;
+  background-color: var(--state-idle-hover);
 }
 
 /* 
@@ -311,18 +335,17 @@ MEDIA WINDOW
 .media-open-btn {
   padding: 6px 12px;
   font-size: 12px;
-  background-color: #a970ff;
+  background-color: var(--accent-blue);
   color: white;
-  font-weight: bold;
+  font-weight: 500;
   border: none;
   border-radius: 6px;
   pointer-events: none;
-  white-space: nowrap;
 }
 
 .media-extracting-text {
-  color: #a970ff;
-  font-weight: bold;
+  color: var(--accent-blue);
+  font-weight: 500;
 }
 
 .media-pdf-container {
@@ -506,49 +529,41 @@ EMPTY STATE / ERROR SCREEN
 }
 
 /* CUSTOM BLOCK */
-/* Ensure the pulse animation is ready */
 @keyframes pulse-border {
   0% {
-    border-left-color: rgba(77, 171, 247, 0.3);
+    border-left-color: var(--accent-blue-alpha);
   }
   50% {
-    border-left-color: rgba(77, 171, 247, 1);
+    border-left-color: var(--accent-blue);
   }
   100% {
-    border-left-color: rgba(77, 171, 247, 0.3);
+    border-left-color: var(--accent-blue-alpha);
   }
 }
 
 /* Review State - Pulsing Blue */
 .bn-container
   .bn-block[data-content-type="heading"][data-background-color="blue"] {
-  background-color: transparent !important; /* Remove native highlight */
-  border-left: 4px solid #4dabf7 !important;
+  background-color: transparent !important;
+  border-left: 3px solid var(--accent-blue) !important;
   padding-left: 15px !important;
   animation: pulse-border 1.5s infinite ease-in-out !important;
 }
 
-/* Success State - Solid Green */
 .bn-container
   .bn-block[data-content-type="heading"][data-background-color="green"] {
   background-color: transparent !important;
-  border-left: 4px solid #20c997 !important;
+  border-left: 3px solid var(--state-success) !important;
   padding-left: 15px !important;
 }
 
-/* Warning State - Solid Red */
 .bn-container
-  .bn-block[data-content-type="heading"][data-background-color="red"] {
+  .bn-block[data-content-type="heading"][data-background-color="red"],
+.bn-container
+  .bn-block[data-content-type="heading"][data-background-color="orange"] {
   background-color: transparent !important;
-  border-left: 4px solid #ff6b6b !important;
+  border-left: 3px solid var(--state-warning) !important;
   padding-left: 15px !important;
-}
-
-/* Ensure the heading text remains readable and has a smooth transition */
-.bn-container .bn-block[data-content-type="heading"] {
-  transition:
-    border-left 0.3s ease,
-    padding-left 0.3s ease;
 }
 
 /* QUESTION BOX */
