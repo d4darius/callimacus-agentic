@@ -24,12 +24,32 @@ body,
   background-color: var(--bg-document);
 }
 
+/*
+NAVBAR
+*/
 .navbar {
   height: var(--nvbh);
   position: sticky;
   top: 0;
   background-color: var(--bg-navbar);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  box-sizing: border-box;
+}
+
+.navbar-brand {
+  font-weight: 600;
+  color: white;
+  letter-spacing: 0.5px;
+}
+
+.navbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .wrap {
@@ -37,6 +57,64 @@ body,
   flex-direction: row;
   width: 100%;
   height: calc(100vh - var(--nvbh));
+}
+
+/* Audio Source Dropdown */
+.audio-source-select {
+  background-color: var(--bg-media);
+  color: var(--text-heading);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  outline: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition:
+    border-color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.audio-source-select:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.audio-source-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Start/Stop Session Button */
+.session-btn {
+  color: white;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    transform 0.1s ease,
+    box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.session-btn:active {
+  transform: scale(0.97); /* Nice little click effect */
+}
+
+.session-btn.recording {
+  background-color: #ff4b4b;
+}
+
+.session-btn.idle {
+  background-color: #20c997;
+}
+
+.session-btn.idle:hover {
+  background-color: #1eb386;
 }
 
 /* 

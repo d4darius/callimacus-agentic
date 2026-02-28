@@ -7,8 +7,9 @@ import re
 import json
 import uvicorn
 import fitz
-import io
+import asyncio
 import torch
+import time
 import numpy as np
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -145,32 +146,11 @@ async def lifespan(app: FastAPI):
             device="cpu", 
             compute_type="default", 
             local_files_only=True,
-            cpu_threads=2  
+            cpu_threads=4  
         )
         
     except FileNotFoundError:
         logger.error("❌ Faster-Whisper cache not found! Did you run setup_models.py?")
-        raise
-    
-    # 3. Boot up Silero VAD
-    logger.info("🧠 Loading Silero VAD model from local cache...")
-    
-    # 💡 THE FIX: Point directly to the PyTorch Hub cache folder!
-    silero_cache_path = os.path.expanduser("~/.cache/torch/hub/snakers4_silero-vad_master")
-    
-    try:
-        # Pass source='local' to skip GitHub completely!
-        vad_model, utils = torch.hub.load(
-            repo_or_dir=silero_cache_path, 
-            source='local',
-            model='silero_vad', 
-            force_reload=False,
-            trust_repo=True
-        )
-        (get_speech_timestamps, _, read_audio, _, _) = utils
-        
-    except FileNotFoundError:
-        logger.error("❌ Silero VAD cache not found! Did you run setup_models.py?")
         raise
 
     logger.info("✅ Server startup complete.")
@@ -399,47 +379,82 @@ async def request_rewrite(payload: RequestPayload):
 # ------------------------------------------
 
 @app.websocket("/api/ws/audio")
+@app.websocket("/api/ws/audio")
 async def websocket_audio_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("🎤 Client connected to Audio WebSocket")
     
-    audio_buffer = bytearray()
-    
-    try:
+    audio_queue = asyncio.Queue()
+
+    # --- THE HEAVY ML WORKER ---
+    # This function runs completely isolated in its own thread
+    def run_ml_pipeline(buffer_bytes):
+        start_time = time.time()
+        try:
+            # 1. Convert Bytes to Float32 Array
+            pcm_array = np.frombuffer(buffer_bytes, dtype=np.int16)
+            samples = pcm_array.astype(np.float32) / 32768.0
+            
+            # 2. 💡 Run Faster-Whisper directly! 
+            # We pass vad_filter=True so it uses its native, crash-free Silero integration
+            segments, info = audio_model.transcribe(
+                samples, 
+                beam_size=5, 
+                language="en", 
+                condition_on_previous_text=False,
+                vad_filter=True, # 💡 Replaces our manual PyTorch implementation
+                vad_parameters=dict(min_silence_duration_ms=500) # Ignore short coughs/breaths
+            )
+            
+            transcript = " ".join([segment.text for segment in segments]).strip()
+            
+            process_time = time.time() - start_time
+            logger.debug(f"⏱️ ML Processing took {process_time:.2f}s")
+            
+            return transcript
+                
+        except Exception as e:
+            logger.error(f"❌ ML Pipeline Error: {e}")
+        return ""
+
+    # --- THE ASYNC CONSUMER ---
+    # This watches the queue and offloads work to the ML thread
+    async def process_worker():
+        audio_buffer = bytearray()
         while True:
-            # 1. Catch the RAW PCM audio bytes from React
-            chunk = await websocket.receive_bytes()
+            # 1. Grab chunks from the queue safely
+            chunk = await audio_queue.get()
             audio_buffer.extend(chunk)
             
-            # We process every ~3 seconds (16kHz * 2 bytes * 3s = ~96000 bytes)
-            if len(audio_buffer) >= 96000: 
-                try:
-                    # 2. Convert Raw Int16 Bytes directly to PyTorch Float32 Tensor
-                    pcm_array = np.frombuffer(audio_buffer, dtype=np.int16)
-                    samples = pcm_array.astype(np.float32) / 32768.0
-                    audio_tensor = torch.from_numpy(samples)
-                    
-                    # 3. Run Silero VAD to detect speech
-                    speech_timestamps = get_speech_timestamps(audio_tensor, vad_model, sampling_rate=16000)
-                    
-                    if speech_timestamps:
-                        # 4. If speech is detected, run Faster-Whisper!
-                        segments, info = audio_model.transcribe(samples, beam_size=5, language="en")
-                        
-                        transcript = " ".join([segment.text for segment in segments]).strip()
-                        
-                        if transcript:
-                            logger.debug(f"🗣️ Transcribed: {transcript}")
-                            await websocket.send_json({"text": f" {transcript} "})
-                    
-                    audio_buffer = bytearray()
-                    
-                except Exception as e:
-                    logger.error(f"Audio Processing Error: {e}")
-                    audio_buffer = bytearray()
+            # 2. When we have 1.5 seconds of audio...
+            if len(audio_buffer) >= 48000:
+                buffer_to_process = bytes(audio_buffer) # Snapshot the bytes
+                audio_buffer = bytearray() # Instantly reset the buffer
+                
+                # 3. Offload to a background thread so the WebSocket stays alive!
+                transcript = await asyncio.to_thread(run_ml_pipeline, buffer_to_process)
+                
+                if transcript:
+                    logger.debug(f"🗣️ Sending to frontend: {transcript}")
+                    await websocket.send_json({"text": f" {transcript} "})
+
+    # Start the background worker
+    worker_task = asyncio.create_task(process_worker())
+    
+    # --- THE WEBSOCKET RECEIVER ---
+    try:
+        while True:
+            # This loop NEVER gets blocked now. It just catches bytes and throws them in the queue.
+            chunk = await websocket.receive_bytes()
+            await audio_queue.put(chunk)
             
     except WebSocketDisconnect:
         logger.info("🎤 Client disconnected from Audio WebSocket")
+    except Exception as e:
+        logger.error(f"❌ WebSocket Error: {e}")
+    finally:
+        # Clean up the worker when the user disconnects
+        worker_task.cancel()
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

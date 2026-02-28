@@ -9,41 +9,33 @@ function App() {
   const [currentDocId, setCurrentDocId] = useState<string>("");
   const [isMediaExpanded, setIsMediaExpanded] = useState<boolean>(false);
   const [isSessionActive, setIsSessionActive] = useState<boolean>(false);
+  const [audioSource, setAudioSource] = useState<"mic" | "system">("mic");
 
   return (
     <>
-      <div
-        className="navbar"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "0 20px",
-          justifyContent: "space-between",
-          boxSizing: "border-box",
-        }}
-      >
-        <div
-          style={{ fontWeight: "bold", color: "white", letterSpacing: "0.5px" }}
-        >
-          🧠 Callimachus Noter
+      <div className="navbar">
+        <div className="navbar-brand">🧠 Callimachus Noter</div>
+
+        <div className="navbar-controls">
+          <select
+            className="audio-source-select"
+            value={audioSource}
+            onChange={(e) => setAudioSource(e.target.value as "mic" | "system")}
+            disabled={isSessionActive}
+          >
+            <option value="mic">🎤 Microphone</option>
+            <option value="system">💻 System/Meeting Audio</option>
+          </select>
+
+          <button
+            className={`session-btn ${isSessionActive ? "recording" : "idle"}`}
+            onClick={() => setIsSessionActive(!isSessionActive)}
+          >
+            {isSessionActive ? "⏹ Stop Session" : "● Start Session"}
+          </button>
         </div>
-        <button
-          onClick={() => setIsSessionActive(!isSessionActive)}
-          style={{
-            backgroundColor: isSessionActive ? "#ff4b4b" : "#20c997",
-            color: "white",
-            border: "none",
-            padding: "6px 16px",
-            borderRadius: "6px",
-            fontWeight: "bold",
-            cursor: "pointer",
-            transition: "background-color 0.2s",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-          }}
-        >
-          {isSessionActive ? "⏹ Stop Session" : "● Start Session"}
-        </button>
       </div>
+
       <div className="App wrap">
         <Sidebar
           currentDocId={currentDocId}
@@ -62,6 +54,7 @@ function App() {
           <MediaWindow onToggleExpand={setIsMediaExpanded} />
         </div>
       </div>
+
       <AudioStreamer isSessionActive={isSessionActive} />
     </>
   );
