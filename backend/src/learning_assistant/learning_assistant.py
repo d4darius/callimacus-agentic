@@ -116,13 +116,15 @@ async def create_paragraph(doc_id: str, par_id: str, store: Annotated[BaseStore,
     
     # 1. Fetch the Compiler's specific memory profile
     existing_item = store.get(("learning_assistant", "compiler_profile"), "user_preferences")
-    compiler_memory = existing_item.value if existing_item else default_content_preferences
+    learned_memory = existing_item.value if existing_item else default_content_preferences
+
+    combined_preferences = f"{default_content_preferences}\n\n**Learned Stylistic Preferences:**\n{learned_memory}"
 
     # 2. Construct the System Message for the Compiler
     system_msg = SystemMessage(
         content=content_system_prompt.format(
             background=default_background,
-            content_preferences=compiler_memory
+            content_preferences=combined_preferences
         )
     )
     
