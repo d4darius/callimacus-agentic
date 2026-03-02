@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -20,8 +20,54 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
   const [extractedPages, setExtractedPages] = useState<Record<string, string>>(
     {},
   );
+  const [pageInputValue, setPageInputValue] = useState<string>("1");
+  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
+  const [timerResetKey, setTimerResetKey] = useState<number>(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync the input box if the user uses the Next/Prev buttons
+  useEffect(() => {
+    setPageInputValue(String(currentPage));
+  }, [currentPage]);
+
+  // Listen for the document telling us a new paragraph started!
+  useEffect(() => {
+    const handleReset = () => {
+      console.log("🔄 New paragraph detected. Restarting OCR dwell timer.");
+      setTimerResetKey((prev) => prev + 1); // Changing this state forces the 5s timer to restart!
+    };
+    window.addEventListener("resetOcrTimer", handleReset);
+    return () => window.removeEventListener("resetOcrTimer", handleReset);
+  }, []);
+
+  // 7-Second Dwell Time OCR Injection
+  useEffect(() => {
+    // Prevent firing if there is no document or if the user is typing in the page input box
+    if (
+      !totalPages ||
+      Object.keys(extractedPages).length === 0 ||
+      !extractedPages[String(currentPage)] ||
+      isInputFocused
+    )
+      return;
+
+    // Start a 5-second countdown
+    const dwellTimer = setTimeout(() => {
+      const formattedOcr = extractedPages[String(currentPage)];
+      console.log(
+        `⏱️ Dwell time reached! Injecting Page ${currentPage} into OCR Context.`,
+      );
+
+      // Fire the event to Document.tsx
+      window.dispatchEvent(
+        new CustomEvent("injectOcr", { detail: formattedOcr }),
+      );
+    }, 7000);
+
+    // CLEANUP: If currentPage changes before 5s, this runs and kills the timer!
+    return () => clearTimeout(dwellTimer);
+  }, [currentPage, extractedPages, totalPages, isInputFocused, timerResetKey]);
 
   const handleContainerClick = () => {
     if (!isExtracting) fileInputRef.current?.click();
@@ -50,10 +96,6 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
           setCurrentPage(1);
           setPdfFile(file);
           onToggleExpand(true);
-
-          window.dispatchEvent(
-            new CustomEvent("injectOcr", { detail: data.pages["1"] }),
-          );
         }
       } catch (err) {
         console.error("Extraction failed", err);
@@ -80,12 +122,25 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
 
     if (newPage !== currentPage) {
       setCurrentPage(newPage);
-      window.dispatchEvent(
-        new CustomEvent("injectOcr", {
-          detail: extractedPages[String(newPage)],
-        }),
-      );
     }
+  };
+
+  // Handle the user hitting "Enter" or clicking away from the input
+  const handlePageSubmit = () => {
+    let newPage = parseInt(pageInputValue, 10);
+
+    // If they typed letters or nonsense, reset it to the current page
+    if (isNaN(newPage)) {
+      setPageInputValue(String(currentPage));
+      return;
+    }
+
+    // Constrain the number to the bounds of the PDF
+    if (newPage < 1) newPage = 1;
+    if (newPage > totalPages) newPage = totalPages;
+
+    setCurrentPage(newPage);
+    setPageInputValue(String(newPage));
   };
 
   if (pdfFile) {
@@ -115,9 +170,9 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
           >
             <Page
               pageNumber={currentPage}
-              renderTextLayer={true} // Allows user to highlight/copy text
+              renderTextLayer={true}
               renderAnnotationLayer={true}
-              width={450} // Adjust this base width as needed, or calculate dynamically
+              width={450}
               className="media-react-page"
             />
           </Document>
@@ -132,9 +187,39 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
           >
             ◀ Prev
           </button>
-          <span className="media-page-text">
-            Page <strong>{currentPage}</strong> of {totalPages}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <input
+              type="text"
+              value={pageInputValue}
+              onFocus={() => setIsInputFocused(true)}
+              onChange={(e) => setPageInputValue(e.target.value)}
+              onBlur={() => {
+                setIsInputFocused(false);
+                handlePageSubmit();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setIsInputFocused(false);
+                  handlePageSubmit();
+                }
+              }}
+              style={{
+                width: "40px",
+                textAlign: "center",
+                background: "var(--bg-navbar)",
+                border: "1px solid var(--border-color)",
+                color: "var(--text-main)",
+                borderRadius: "4px",
+                padding: "4px",
+              }}
+            />
+            <span
+              className="media-page-text"
+              style={{ color: "var(--text-muted)", fontSize: "14px" }}
+            >
+              / {totalPages || "?"}
+            </span>
+          </div>
           <button
             onClick={() => handlePageChange("next")}
             disabled={currentPage === totalPages}

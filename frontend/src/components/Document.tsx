@@ -172,6 +172,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
   >({});
   // ACTIVE BUCKET TRACKER
   const activeHeadingRef = useRef<string>("doc-start");
+  const prevActiveHeadingRef = useRef<string>("doc-start");
   // UNBOUNDED BUFFER: to be flushed into paragraph as soon as we write in one
   const unassignedPagesRef = useRef<string[]>([]);
   const syncingHeadingRef = useRef<string | null>(null);
@@ -678,6 +679,12 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
   // Manages the start/stop of timers based on cursor focus
   const manageTimers = () => {
     const activeId = getActiveHeadingId();
+
+    if (activeId && activeId !== prevActiveHeadingRef.current) {
+      prevActiveHeadingRef.current = activeId;
+      window.dispatchEvent(new CustomEvent("resetOcrTimer"));
+    }
+
     if (activeId) activeHeadingRef.current = activeId;
 
     // Inactive session: Clear all timers so the user isn't pestered while they are not working
