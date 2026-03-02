@@ -277,6 +277,22 @@ def put_doc(doc_id: str, payload: DocUpdate):
     doc.save_ui_document(payload.content)
     return {"ok": True, "docId": doc_id}
 
+@app.delete("/api/docs/{doc_id}")
+def delete_document(doc_id: str):
+    """Deletes the document and its AI memory context from the hard drive."""
+    # Assuming get_document is your helper function to fetch the Document class instance
+    from document import Document # Or however you import it
+    doc = Document(doc_id)
+    
+    # Remove files from disk
+    import os
+    if os.path.exists(doc.doc_file_path):
+        os.remove(doc.doc_file_path)
+    if os.path.exists(doc.context_file_path):
+        os.remove(doc.context_file_path)
+        
+    return {"ok": True, "message": "Document deleted"}
+
 # --- MEDIA ENDPOINTS ---
 @app.post("/api/media/extract")
 async def extract_pdf_text(file: UploadFile = File(...)):

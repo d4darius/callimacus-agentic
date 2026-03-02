@@ -584,3 +584,76 @@ EMPTY STATE / ERROR SCREEN
 .hitl-input:focus {
   border: 1px solid white; /* Turns white only when actively typing */
 }
+
+/* ==========================================
+   PDF EXPORT & PRINT STYLES 
+   ========================================== */
+@media print {
+  /* 1. PHYSICAL PAPER MARGINS: Applies 2cm to EVERY page */
+  @page {
+    margin: 2cm;
+  }
+
+  /* 2. Hide all UI chrome and buttons */
+  .navbar,
+  .sidebar,
+  .media-window,
+  button,
+  .doc-actions {
+    display: none !important;
+  }
+
+  /* 3. Destroy all scroll constraints */
+  html,
+  body,
+  #root,
+  .App,
+  .App.wrap {
+    display: block !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* 4. Remove our old fake padding, let @page handle it! */
+  .document-window {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important; /* 💡 Reset to 0 so we don't double-up with @page */
+    border: none !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Remove padding from the inner wrapper */
+  .fileContent {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  /* 5. STRIP BLOCKNOTE'S INVISIBLE LEFT GUTTER */
+  .bn-container,
+  .bn-editor {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* 6. Prevent awkward page breaks in the middle of a paragraph */
+  .bn-block-content {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}

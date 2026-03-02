@@ -32,6 +32,10 @@ function Sidebar({ currentDocId, onSelectDocument }: SidebarProps) {
     }
 
     fetchDocList();
+
+    window.addEventListener("refreshSidebar", fetchDocList);
+
+    return () => window.removeEventListener("refreshSidebar", fetchDocList);
   }, []);
 
   const handleCreateNew = async () => {

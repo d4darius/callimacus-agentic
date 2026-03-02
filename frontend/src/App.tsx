@@ -141,6 +141,7 @@ function App() {
             docname={currentDocId.replace(".json", "")}
             docId={currentDocId}
             isSessionActive={isSessionActive}
+            onDelete={() => setCurrentDocId("")}
           />
         </div>
         <div

@@ -17,6 +17,7 @@ interface DocumentProps {
   docname: string;
   docId: string;
   isSessionActive: boolean;
+  onDelete: () => void;
 }
 
 /* HELPER FUNCTIONS */
@@ -135,7 +136,12 @@ const CustomFormattingToolbar = (props: any) => (
 // MAIN DOCUMENT COMPONENT
 // ==========================================
 
-function Document({ docname, docId, isSessionActive }: DocumentProps) {
+function Document({
+  docname,
+  docId,
+  isSessionActive,
+  onDelete,
+}: DocumentProps) {
   const [editor, setEditor] = useState<BlockNoteEditor<any, any, any> | null>(
     null,
   );
@@ -861,6 +867,43 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     }, 1000);
   };
 
+  // --- DELETE DOCUMENT ---
+  const handleDelete = async () => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete "${docname}"? This cannot be undone.`,
+      )
+    )
+      return;
+
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/docs/${encodeURIComponent(docId)}`,
+        {
+          method: "DELETE",
+        },
+      );
+      if (res.ok) {
+        // Tell App.tsx to clear the view
+        onDelete();
+
+        // Tell SideBar.tsx to refresh the view
+        window.dispatchEvent(new CustomEvent("refreshSidebar"));
+      }
+    } catch (err) {
+      console.error("Failed to delete document:", err);
+      alert("Error deleting document.");
+    }
+  };
+
+  // --- EXPORT TO PDF ---
+  const handleExportPDF = () => {
+    // We add a temporary class to the body to trigger our print CSS
+    document.body.classList.add("printing-mode");
+    window.print();
+    document.body.classList.remove("printing-mode");
+  };
+
   if (error || docname === "")
     return (
       <div className="empty-state-container">
@@ -883,13 +926,59 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       style={{ position: "relative" }}
       ref={containerRef}
     >
-      <h1>
-        {docname
-          .split(/[-_]/) // Split the string by dashes or underscores
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize each word
-          .join(" ")}{" "}
-        {/* Join them back together with spaces */}
-      </h1>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "20px",
+        }}
+      >
+        <h1 style={{ margin: 0 }}>
+          {docname
+            .split(/[-_]/)
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ")}
+        </h1>
+
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            onClick={handleExportPDF}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              background: "var(--bg-navbar)",
+              border: "1px solid var(--border-color)",
+              color: "var(--text-main)",
+              borderRadius: "4px",
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ fontSize: "16px" }}>⎙</span> Export PDF
+          </button>
+
+          <button
+            onClick={handleDelete}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              background: "transparent",
+              border: "1px solid #ff4d4f",
+              color: "#ff4d4f",
+              borderRadius: "4px",
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ fontSize: "14px", fontWeight: "bold" }}>✕</span>{" "}
+            Delete
+          </button>
+        </div>
+      </div>
+
       <BlockNoteView
         editor={editor}
         theme="dark"
