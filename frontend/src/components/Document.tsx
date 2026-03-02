@@ -737,7 +737,26 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     });
     if (currentBucket.blocks.length > 0) buckets.push(currentBucket);
 
-    // --- STEP B: Update the Register for Changes ---
+    // --- STEP B: Prune the Deleted buckets ---
+    const currentHeadingIds = new Set(buckets.map((b) => b.headingId));
+
+    Object.keys(sectionRegister.current).forEach((registeredId) => {
+      if (!currentHeadingIds.has(registeredId)) {
+        // This heading is in memory but no longer in the document!
+        const deadEntry = sectionRegister.current[registeredId];
+
+        // 1. Kill the pending LLM API call instantly
+        if (deadEntry.timeoutId) {
+          window.clearTimeout(deadEntry.timeoutId);
+        }
+
+        // 2. Erase it from memory
+        delete sectionRegister.current[registeredId];
+        console.log(`🗑️ Pruned deleted paragraph from memory: ${registeredId}`);
+      }
+    });
+
+    // --- STEP C: Update the Register for Changes ---
     buckets.forEach((bucket) => {
       const currentContentStr = JSON.stringify(bucket.blocks);
       const registerEntry = sectionRegister.current[bucket.headingId];
@@ -814,7 +833,7 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       }
     });
 
-    // --- STEP C: Re-evaluate Timers ---
+    // --- STEP D: Re-evaluate Timers ---
     manageTimers();
 
     // --- PART D: Global Autosave ---
@@ -875,7 +894,6 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
           formattingToolbar={CustomFormattingToolbar}
         />
       </BlockNoteView>
-      {/* REWRITE INSTRUCTION POPOVER */}
       {/* REWRITE INSTRUCTION POPOVER */}
       {rewriteHeadingId && (
         <div
