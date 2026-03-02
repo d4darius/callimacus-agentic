@@ -322,7 +322,7 @@ async def process_paragraph(payload: ProcessPayload, request: Request):
     doc = get_document(payload.doc_id)
     
     # 2. Update the AI Context safely
-    doc.update_paragraph_metadata(payload.par_id, payload.audio, payload.ocr)
+    doc.update_paragraph_metadata(payload.par_id, payload.audio, payload.ocr, payload.notes)
 
     # 3. Setup LangGraph Thread
     thread_id = f"{payload.doc_id}_{payload.par_id}"

@@ -96,12 +96,15 @@ class Document():
         self._update_paths()
         return True
     
-    def update_paragraph_metadata(self, par_id: str, audio: str, ocr: str):
+    def update_paragraph_metadata(self, par_id: str, audio: str, ocr: str, notes: str = ""):
         """Updates just the AI inputs for a specific paragraph."""
         if par_id not in self.paragraphs:
             self.paragraphs[par_id] = {"audio": "", "ocr": "", "notes": "", "additional_notes": ""}
         self.paragraphs[par_id]["audio"] = audio
         self.paragraphs[par_id]["ocr"] = ocr
+        if notes:
+            self.paragraphs[par_id]["notes"] = notes
+            
         self._save_context()
 
     def get_paragraph(self, par_id: str) -> Dict:
