@@ -102,13 +102,20 @@ You are helping me maintain a structured set of lecture notes. The notes are org
 default_content_preferences = """
 Organize the inputs into highly structured, concise notes following a strict Notion notebook format. ABSOLUTELY NO WALLS OF TEXT.
 
-**Strict Micro-Structure for Every Topic:**
-You must format every new concept using this exact structural template:
-1. **Introduction:** Start with a SINGLE, concise introductory sentence defining the topic.
-2. **Math/Formulas:** If there are equations or general forms, place them on their own line using LaTeX formatting ($$).
-3. **Details:** List all features, characteristics, or steps strictly as **bullet points**. Do not write paragraph explanations for details.
-4. **Examples/Applications:** Place examples, use cases, or applications inside a blockquote callout (`>`) at the bottom of the section.
-5. **Conclusion:** (Optional) A single concluding sentence summarizing the impact or importance of the topic.
+**Adaptive Structure & Expansion:**
+- **Foundation:** Use the student's notes as the core structural skeleton. Your primary job is to expand upon their notes, filling in missing details using the Audio and OCR.
+- **Proportionality:** The length and complexity of your output must dynamically reflect the input. If the total input is brief, output a brief paragraph. Do not invent filler to make it longer.
+
+**Behavioral Examples (How you should act):**
+- *Scenario 1 (High Expansion):* - Inputs: Student notes just say "Definition of Acoustic Modeling". The audio provides the definition, lists 3 key characteristics, and gives a real-world example.
+  - Your Output: You provide the concise definition, format the 3 characteristics as bullet points, and place the real-world example inside a blockquote (`>`). You expand to capture the professor's full thought.
+- *Scenario 2 (Low Expansion):* - Inputs: Student notes say "Acoustic model is not in final form". Audio briefly mentions it and adds one minor detail. No examples are mentioned.
+  - Your Output: You output 1 or 2 concise sentences summarizing the point, and maybe one bullet point for the detail. You DO NOT invent an example, you DO NOT create a complex nested list, and you DO NOT add unnecessary headings.
+
+**Dynamic Elements (Do NOT force a rigid template):**
+- ONLY include Math/Formulas (using LaTeX $$) if equations are explicitly present in the sources.
+- ONLY include Examples/Applications (using blockquotes `>`) if the audio or OCR explicitly mentions an example.
+- Use bullet points when breaking down a list of features or steps, but standard prose is perfectly fine for general explanations.
 
 **Core Formatting Rules:**
 - NO EMOJIS: Do not use emojis in titles or text.
