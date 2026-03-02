@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Literal, Dict, Annotated, Any
 from langchain.tools import tool, InjectedToolArg
 from langchain.chat_models import init_chat_model
-from langchain.messages import SystemMessage, ToolMessage, HumanMessage
+from langchain.messages import SystemMessage, ToolMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.base import BaseStore
@@ -16,6 +16,11 @@ from learning_assistant.prompts import content_system_prompt, agent_system_promp
 from learning_assistant.state import MessagesState
 from document import Document
 from dotenv import load_dotenv
+
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_groq import ChatGroq
+from langchain_core.runnables import RunnableConfig
 
 #-----------------------
 # SETUP AND LOGGING
@@ -43,24 +48,46 @@ class UserPreferences(BaseModel):
 # MODEL INSTANTIATION
 #-----------------------
 
-agent_model_name = os.getenv("AGENT_MODEL_NAME", "openai:gpt-4.1")
-compiling_model_name = os.getenv("COMPILING_MODEL", "openai:gpt-4.1")
-memory_model_name = os.getenv("MEMORY_MODEL", "openai:gpt-4.1")
-
-agent_model = init_chat_model(
-    agent_model_name,
-    temperature=0.0
-)
-
-compiling_model = init_chat_model(
-    compiling_model_name,
-    temperature=0.0
-)
-
-memory_model = init_chat_model(
-    compiling_model_name,
-    temperature=0.0
-)
+#-----------------------
+# DYNAMIC MODEL INSTANTIATION
+#-----------------------
+def get_dynamic_llm(model_name: str, api_key: str, temperature: float = 0.0):
+    """Dynamically initializes the LLM based on the frontend's header injection."""
+    
+    # 1. Anti-API Local Proxy Routing
+    if model_name.startswith("anti-api:"):
+        actual_model = model_name.replace("anti-api:", "")
+        return ChatOpenAI(
+            model=actual_model,
+            api_key="dummy-key",
+            base_url="http://localhost:8964/v1",
+            temperature=temperature
+        )
+        
+    # 2. Groq Routing
+    elif model_name.startswith("groq:"):
+        actual_model = model_name.replace("groq:", "")
+        return ChatGroq(
+            model=actual_model,
+            api_key=api_key,
+            temperature=temperature
+        )
+        
+    # 3. Anthropic Routing
+    elif "claude" in model_name:
+        return ChatAnthropic(
+            model_name=model_name,
+            api_key=api_key,
+            temperature=temperature
+        )
+        
+    # 4. Standard OpenAI Routing
+    else:
+        return ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            temperature=temperature
+        )
 
 #-----------------------
 # DOCUMENT REGISTER
@@ -93,7 +120,7 @@ async def ask_question(question: str):
     pass # Logic handled in the interrupt
 
 @tool
-async def create_paragraph(doc_id: str, par_id: str, store: Annotated[BaseStore, InjectedToolArg]):
+async def create_paragraph(doc_id: str, par_id: str, config: Annotated[RunnableConfig, InjectedToolArg], store: Annotated[BaseStore, InjectedToolArg]):
     """
     This tool combines the audio, OCR and user notes payload into a final polished paragraph
 
@@ -106,6 +133,11 @@ async def create_paragraph(doc_id: str, par_id: str, store: Annotated[BaseStore,
     # RETURNS:
     A dict with the status of the operation and the finalized paragraph
     """
+
+    api_key = config["configurable"].get("api_key", "")
+    llm_model = config["configurable"].get("llm_model", "gpt-4o")
+    compiling_model = get_dynamic_llm(llm_model, api_key)
+
     doc_ref = DOCUMENT_STORAGE.get(doc_id)
     if not doc_ref:
         return {"success": False, "error": f"Document {doc_id} not found"}
@@ -179,13 +211,12 @@ async def extract_image(doc_id: str, par_id: str, image: Any):
 # Augment the LLM with tools
 tools = [ask_question, create_paragraph] # add extract_image
 tools_by_name = {tool.name: tool for tool in tools}
-model_with_tools = agent_model.bind_tools(tools)
 
 #-----------------------
 # MEMORY UPDATE
 #-----------------------
 
-def update_memory(store: BaseStore, namespace: tuple, messages: list):
+def update_memory(store: BaseStore, namespace: tuple, messages: list, config: RunnableConfig):
     """Update memory profile in the store."""
 
     logger.info(f"Updating memory profile for {namespace}...")
@@ -193,7 +224,11 @@ def update_memory(store: BaseStore, namespace: tuple, messages: list):
     existing_item = store.get(namespace, "user_preferences")
     current_profile = existing_item.value if existing_item else "No preferences yet."
 
-    llm = memory_model.with_structured_output(UserPreferences)
+    api_key = config["configurable"].get("api_key", "")
+    llm_model = config["configurable"].get("llm_model", "gpt-4o")
+    dynamic_memory_model = get_dynamic_llm(llm_model, api_key)
+
+    llm = dynamic_memory_model.with_structured_output(UserPreferences)
     
     result = llm.invoke(
         [
@@ -208,9 +243,14 @@ def update_memory(store: BaseStore, namespace: tuple, messages: list):
 # LLM INVOKE
 #-----------------------
 
-def llm_call(state: MessagesState, store: BaseStore):
+def llm_call(state: MessagesState, config: RunnableConfig, store: BaseStore):
     """LLM decides whether to call a tool or not"""
     logger.info("Agent Model: Evaluating current state...")
+
+    # 0. Build the dynamic agent model with tools bound!
+    api_key = config["configurable"].get("api_key", "")
+    llm_model = config["configurable"].get("llm_model", "gpt-4o")
+    dynamic_agent_model = get_dynamic_llm(llm_model, api_key).bind_tools(tools, tool_choice="any")
     
     # 1. Fetch the Agent's specific memory profile
     existing_item = store.get(("learning_assistant", "agent_profile"), "user_preferences")
@@ -227,8 +267,29 @@ def llm_call(state: MessagesState, store: BaseStore):
             agent_memory=agent_memory
         )
     )
+
+    # Self-healing messages
+    safe_messages = []
+    messages_list = state["messages"]
+
+    for i, msg in enumerate(messages_list):
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            # Verify every tool_call has a matching ToolMessage ahead in the history
+            valid = True
+            for tc in msg.tool_calls:
+                if not any(isinstance(m, ToolMessage) and m.tool_call_id == tc["id"] for m in messages_list[i+1:]):
+                    valid = False
+                    break
+            
+            if not valid:
+                logger.warning(f"🧹 Scrubbing corrupted tool_call {msg.tool_calls[0]['id']} from history to prevent API crash.")
+                # Strip the broken tool call so the API doesn't crash, replacing it with harmless text
+                safe_messages.append(AIMessage(content=msg.content or "Action failed. Retrying..."))
+                continue
+                
+        safe_messages.append(msg)
     
-    response = model_with_tools.invoke([system_msg] + state["messages"])
+    response = dynamic_agent_model.invoke([system_msg] + safe_messages)
 
     if response.tool_calls:
         tool_names = [tc['name'] for tc in response.tool_calls]
@@ -245,7 +306,7 @@ def llm_call(state: MessagesState, store: BaseStore):
 # INTERRUPT HANDLER
 #-----------------------
 
-async def interrupt_handler(state: MessagesState, store: BaseStore) -> Command[Literal["llm_call", "__end__"]]:
+async def interrupt_handler(state: MessagesState, config: RunnableConfig, store: BaseStore) -> Command[Literal["llm_call", "__end__"]]:
     """Dynamically suspends execution ONLY for human clarification questions."""
     result = []
     goto = "llm_call"
@@ -263,6 +324,7 @@ async def interrupt_handler(state: MessagesState, store: BaseStore) -> Command[L
             args = tool_call["args"].copy()
             if tool_call["name"] == "create_paragraph":
                 args["store"] = store 
+                args["config"] = config
             
             observation = await tool.ainvoke(args) 
             result.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
@@ -304,7 +366,8 @@ async def interrupt_handler(state: MessagesState, store: BaseStore) -> Command[L
                 update_memory(
                     store, 
                     ("learning_assistant", "agent_profile"),
-                    [{"role": "user", "content": memory_context}]
+                    [{"role": "user", "content": memory_context}],
+                    config
                 )
 
                 # --- INJECT INTO THE DOCUMENT PAYLOAD ---

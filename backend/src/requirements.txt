@@ -7,6 +7,8 @@ langchain
 langchain-core
 langgraph
 langchain-openai
+langchain_anthropic
+langchain_groq
 
 # Data Validation & Environment
 pydantic

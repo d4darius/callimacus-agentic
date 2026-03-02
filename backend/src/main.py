@@ -13,7 +13,7 @@ import numpy as np
 import concurrent.futures
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -26,6 +26,9 @@ from faster_whisper import WhisperModel
 
 from langchain.messages import HumanMessage
 from langgraph.types import Command
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_groq import ChatGroq
 from document import Document
 from learning_assistant.learning_assistant import (
     agent, 
@@ -190,6 +193,46 @@ def get_document(doc_id: str) -> Document:
         DOCUMENT_STORAGE[doc_id] = Document(doc_id)
     return DOCUMENT_STORAGE[doc_id]
 
+def get_dynamic_llm(model_name: str, api_key: str):
+    """
+    Dynamically initialize the LLM based on the model_name and api_key sent from the frontend.
+    """
+    
+    # 1. Intercept and handle Anti-API local proxy requests
+    if model_name.startswith("anti-api:"):
+        actual_model = model_name.replace("anti-api:", "")
+        return ChatOpenAI(
+            model=actual_model,
+            api_key="dummy-key-not-needed",
+            base_url="http://localhost:8964/v1",
+            temperature=0.0
+        )
+        
+    # 2. Handle Groq
+    elif model_name.startswith("groq:"):
+        actual_model = model_name.replace("groq:", "")
+        return ChatGroq(
+            model=actual_model,
+            api_key=api_key,
+            temperature=0.0
+        )
+        
+    # 3. Handle Anthropic (Claude)
+    elif "claude" in model_name:
+        return ChatAnthropic(
+            model=model_name,
+            api_key=api_key,
+            temperature=0.0
+        )
+        
+    # 4. Default to standard OpenAI
+    else:
+        return ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            temperature=0.0
+        )
+
 # ------------------------------------------
 # FILE SYSTEM & DOCUMENT ENDPOINTS
 # ------------------------------------------
@@ -268,8 +311,12 @@ class ProcessPayload(BaseModel):
     notes: str = ""
 
 @app.post("/api/llm/process")
-async def process_paragraph(payload: ProcessPayload):
+async def process_paragraph(payload: ProcessPayload, request: Request):
     """Triggers the LangGraph agent to analyze sources and either compile or pause for HITL."""
+
+    # 0. Extract headers sent by React
+    api_key = request.headers.get("x-api-key", "")
+    llm_model = request.headers.get("x-llm-model", "gpt-4o")
     
     # 1. Ensure document is loaded in storage
     doc = get_document(payload.doc_id)
@@ -279,7 +326,13 @@ async def process_paragraph(payload: ProcessPayload):
 
     # 3. Setup LangGraph Thread
     thread_id = f"{payload.doc_id}_{payload.par_id}"
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "api_key": api_key,
+            "llm_model": llm_model
+        }
+    }
 
     # Fetch perfectly reconciled notes
     par_data = doc.get_paragraph(payload.par_id)
@@ -324,11 +377,20 @@ class ResumePayload(BaseModel):
     answer: str
 
 @app.post("/api/llm/resume")
-async def resume_agent(payload: ResumePayload):
+async def resume_agent(payload: ResumePayload, request: Request):
     """Resumes a paused graph after the user answers the clarification question."""
+
+    api_key = request.headers.get("x-api-key", "")
+    llm_model = request.headers.get("x-llm-model", "gpt-4o")
     
     thread_id = f"{payload.doc_id}_{payload.par_id}"
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "api_key": api_key,
+            "llm_model": llm_model
+        }
+    }
     
     user_response = {
         "type": "response",
@@ -361,8 +423,12 @@ class RequestPayload(BaseModel):
     instruction: str
 
 @app.post("/api/llm/request")
-async def request_rewrite(payload: RequestPayload):
+async def request_rewrite(payload: RequestPayload, request: Request):
     """Updates the Compiler's global memory and forces a paragraph rewrite."""
+
+    api_key = request.headers.get("x-api-key", "")
+    llm_model = request.headers.get("x-llm-model", "gpt-4o")
+
     doc = get_document(payload.doc_id)
 
     # 1. Trigger the atomic sync here too!
@@ -372,12 +438,19 @@ async def request_rewrite(payload: RequestPayload):
     update_memory(
         in_memory_store, 
         ("learning_assistant", "compiler_profile"), 
-        [{"role": "user", "content": f"User requested a formatting/style change: {payload.instruction}"}]
+        [{"role": "user", "content": f"User requested a formatting/style change: {payload.instruction}"}],
+        config
     )
     
     # 2. Tell the graph to regenerate the paragraph
     thread_id = f"{payload.doc_id}_{payload.par_id}"
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "api_key": api_key,
+            "llm_model": llm_model
+        }
+    }
 
     # Fetch perfectly reconciled notes
     par_data = doc.get_paragraph(payload.par_id)

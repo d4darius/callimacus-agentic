@@ -462,9 +462,17 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
     console.log(`[API CALL] Processing payload for ${headingId}...`);
 
     try {
+      // Grab the BYOK settings from local storage
+      const apiKey = localStorage.getItem("callimachus_api_key") || "";
+      const llmModel = localStorage.getItem("callimachus_llm") || "gpt-4o";
+
       const res = await fetch("http://localhost:8000/api/llm/process", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "x-llm-model": llmModel,
+        },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
@@ -537,9 +545,16 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       editor.updateBlock(headingId, { props: { backgroundColor: "blue" } });
 
     try {
+      const apiKey = localStorage.getItem("callimachus_api_key") || "";
+      const llmModel = localStorage.getItem("callimachus_llm") || "gpt-4o";
+
       const res = await fetch("http://localhost:8000/api/llm/resume", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "x-llm-model": llmModel,
+        },
         body: JSON.stringify({
           doc_id: docname,
           par_id: headingId,
@@ -596,9 +611,16 @@ function Document({ docname, docId, isSessionActive }: DocumentProps) {
       editor.updateBlock(headingId, { props: { backgroundColor: "blue" } });
 
     try {
+      const apiKey = localStorage.getItem("callimachus_api_key") || "";
+      const llmModel = localStorage.getItem("callimachus_llm") || "gpt-4o";
+
       const res = await fetch("http://localhost:8000/api/llm/request", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "x-llm-model": llmModel,
+        },
         body: JSON.stringify({
           doc_id: docname,
           par_id: headingId,
