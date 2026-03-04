@@ -147,18 +147,66 @@ SIDEBAR
 .sidebar {
   width: 260px;
   height: 100%;
-  background-color: var(--bg-navbar); /* Matches your existing dark theme */
+  background-color: var(--bg-navbar);
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
   flex-direction: column;
+  /* Smoothly transition the width */
+  transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sidebar.collapsed {
+  width: 55px; /* Shrinks to just fit the icon */
+  min-width: 55px;
+}
+
+.sidebar.expanded {
+  width: 260px;
 }
 
 .sidebar-header {
   padding: 20px 15px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* 💡 Wrapper to cleanly hide the list when collapsed */
+.sidebar-collapsible-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  opacity: 1;
+  transition: opacity 0.2s ease-in-out;
+  overflow: hidden;
+}
+
+.sidebar.collapsed .sidebar-collapsible-content {
+  opacity: 0;
+  pointer-events: none; /* Prevents invisible clicks */
+}
+
+/* 💡 The new Hamburger Menu Button */
+.sidebar-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition:
+    color 0.2s,
+    background 0.2s;
+}
+
+.sidebar-toggle-btn:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .workspace-name {
@@ -174,7 +222,7 @@ SIDEBAR
   border-radius: 4px;
   padding: 4px 8px;
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   transition: all 0.2s ease;
 }
 

@@ -13,6 +13,7 @@ interface SidebarProps {
 function Sidebar({ currentDocId, onSelectDocument }: SidebarProps) {
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [error, setError] = useState<string>("");
+  const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   // New state for renaming
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -117,56 +118,95 @@ function Sidebar({ currentDocId, onSelectDocument }: SidebarProps) {
   };
 
   return (
-    <div className="sidebar">
-      <div className="sidebar-header">
-        <span className="workspace-name">Notebook Repository</span>
-        <button className="new-doc-button" onClick={handleCreateNew}>
-          + New
-        </button>
+    <div className={`sidebar ${isExpanded ? "expanded" : "collapsed"}`}>
+      <div
+        className="sidebar-header"
+        style={{
+          justifyContent: isExpanded ? "space-between" : "center",
+          padding: isExpanded ? "20px 15px" : "20px 0",
+          gap: "6px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {/* Hamburger Menu Toggle */}
+          <button
+            className="sidebar-toggle-btn"
+            onClick={() => setIsExpanded(!isExpanded)}
+            title="Toggle Sidebar"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          {isExpanded && (
+            <span className="workspace-name">Notebook Repository</span>
+          )}
+        </div>
+
+        {isExpanded && (
+          <button className="new-doc-button" onClick={handleCreateNew}>
+            + New
+          </button>
+        )}
       </div>
 
-      {error && <div className="sidebar-error">{error}</div>}
+      {/* This wrapper disappears when collapsed! */}
+      <div className="sidebar-collapsible-content">
+        {error && <div className="sidebar-error">{error}</div>}
 
-      <ul className="doc-list">
-        {docs.map((doc) => (
-          <li key={doc.id} className="doc-item-wrapper">
-            {editingId === doc.id ? (
-              <input
-                autoFocus
-                className="rename-input"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={() => handleRenameSubmit(doc.id)} // Saves if user clicks away
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRenameSubmit(doc.id); // Saves on Enter
-                  if (e.key === "Escape") setEditingId(null); // Cancels on Esc
-                }}
-              />
-            ) : (
-              <div
-                className={`doc-item-container ${currentDocId === doc.id ? "active" : ""}`}
-              >
-                <button
-                  className="doc-item-button"
-                  onClick={() => onSelectDocument(doc.id)}
-                >
-                  📄 {doc.name}
-                </button>
-                <button
-                  className="rename-trigger-btn"
-                  onClick={() => {
-                    setEditingId(doc.id);
-                    setEditName(doc.name);
+        <ul className="doc-list">
+          {docs.map((doc) => (
+            <li key={doc.id} className="doc-item-wrapper">
+              {editingId === doc.id ? (
+                <input
+                  autoFocus
+                  className="rename-input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onBlur={() => handleRenameSubmit(doc.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleRenameSubmit(doc.id);
+                    if (e.key === "Escape") setEditingId(null);
                   }}
-                  title="Rename"
+                />
+              ) : (
+                <div
+                  className={`doc-item-container ${currentDocId === doc.id ? "active" : ""}`}
                 >
-                  ✎
-                </button>
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
+                  <button
+                    className="doc-item-button"
+                    onClick={() => onSelectDocument(doc.id)}
+                  >
+                    📄 {doc.name}
+                  </button>
+                  <button
+                    className="rename-trigger-btn"
+                    onClick={() => {
+                      setEditingId(doc.id);
+                      setEditName(doc.name);
+                    }}
+                    title="Rename"
+                  >
+                    ✎
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
