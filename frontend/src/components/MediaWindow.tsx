@@ -23,8 +23,18 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
   const [pageInputValue, setPageInputValue] = useState<string>("1");
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const [timerResetKey, setTimerResetKey] = useState<number>(0);
+  const [zoomLevel, setZoomLevel] = useState<number>(1.0); // 1.0 = Default Fit to Page
+  const [containerDim, setContainerDim] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [pageDim, setPageDim] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync the input box if the user uses the Next/Prev buttons
   useEffect(() => {
@@ -72,6 +82,22 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
   const handleContainerClick = () => {
     if (!isExtracting) fileInputRef.current?.click();
   };
+
+  // Automatically fit the PDF to the container width
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver((entries) => {
+      setContainerDim({
+        width: Math.max(10, entries[0].contentRect.width - 40),
+        height: Math.max(10, entries[0].contentRect.height - 40),
+      });
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [pdfFile]);
 
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -143,23 +169,22 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
     setPageInputValue(String(newPage));
   };
 
+  let finalScale = zoomLevel;
+  if (pageDim && containerDim) {
+    const widthRatio = containerDim.width / pageDim.width;
+    const heightRatio = containerDim.height / pageDim.height;
+    finalScale = Math.max(0.1, Math.min(widthRatio, heightRatio) * zoomLevel);
+  }
+
   if (pdfFile) {
     return (
       <div className="media-pdf-container">
-        {/* PDF VIEWPORT */}
-        <div
-          className="media-pdf-viewport"
-          style={{
-            overflowY: "auto",
-            display: "flex",
-            justifyContent: "center",
-            backgroundColor: "#333",
-          }}
-        >
-          <button onClick={closePdf} className="media-close-btn">
-            ✕ Close PDF
-          </button>
+        <button onClick={closePdf} className="media-close-btn">
+          ✕ Close PDF
+        </button>
 
+        {/* PDF VIEWPORT */}
+        <div className="media-pdf-viewport" ref={containerRef}>
           <Document
             file={pdfFile}
             loading={
@@ -170,9 +195,21 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
           >
             <Page
               pageNumber={currentPage}
+              scale={finalScale} // 💡 Use our calculated fit-to-page scale!
+              onLoadSuccess={(page: any) => {
+                // Safely grab the native dimensions of the PDF the moment it loads
+                const width =
+                  page.originalWidth ||
+                  (page.getViewport && page.getViewport({ scale: 1 }).width) ||
+                  800;
+                const height =
+                  page.originalHeight ||
+                  (page.getViewport && page.getViewport({ scale: 1 }).height) ||
+                  1000;
+                setPageDim({ width, height });
+              }}
               renderTextLayer={true}
               renderAnnotationLayer={true}
-              width={450}
               className="media-react-page"
             />
           </Document>
@@ -180,53 +217,96 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
 
         {/* CUSTOM PAGINATION BAR */}
         <div className="media-pagination">
-          <button
-            onClick={() => handlePageChange("prev")}
-            disabled={currentPage === 1}
-            className="media-page-btn"
-          >
-            ◀ Prev
-          </button>
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <input
-              type="text"
-              value={pageInputValue}
-              onFocus={() => setIsInputFocused(true)}
-              onChange={(e) => setPageInputValue(e.target.value)}
-              onBlur={() => {
-                setIsInputFocused(false);
-                handlePageSubmit();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
+          {/* Pagination Controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <button
+              onClick={() => handlePageChange("prev")}
+              disabled={currentPage === 1}
+              className="media-page-btn"
+            >
+              ◀ Prev
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <input
+                type="text"
+                value={pageInputValue}
+                onFocus={() => setIsInputFocused(true)}
+                onChange={(e) => setPageInputValue(e.target.value)}
+                onBlur={() => {
                   setIsInputFocused(false);
                   handlePageSubmit();
-                }
-              }}
-              style={{
-                width: "40px",
-                textAlign: "center",
-                background: "var(--bg-navbar)",
-                border: "1px solid var(--border-color)",
-                color: "var(--text-main)",
-                borderRadius: "4px",
-                padding: "4px",
-              }}
-            />
-            <span
-              className="media-page-text"
-              style={{ color: "var(--text-muted)", fontSize: "14px" }}
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setIsInputFocused(false);
+                    handlePageSubmit();
+                  }
+                }}
+                style={{
+                  width: "40px",
+                  textAlign: "center",
+                  background: "var(--bg-navbar)",
+                  border: "1px solid var(--border-color)",
+                  color: "var(--text-main)",
+                  borderRadius: "4px",
+                  padding: "4px",
+                }}
+              />
+              <span
+                className="media-page-text"
+                style={{ color: "var(--text-muted)", fontSize: "14px" }}
+              >
+                / {totalPages || "?"}
+              </span>
+            </div>
+            <button
+              onClick={() => handlePageChange("next")}
+              disabled={currentPage === totalPages}
+              className="media-page-btn"
             >
-              / {totalPages || "?"}
-            </span>
+              Next ▶
+            </button>
           </div>
-          <button
-            onClick={() => handlePageChange("next")}
-            disabled={currentPage === totalPages}
-            className="media-page-btn"
+
+          {/* Zoom Controls */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              borderLeft: "1px solid #333",
+              paddingLeft: "20px",
+              marginLeft: "10px",
+            }}
           >
-            Next ▶
-          </button>
+            <button
+              onClick={() => setZoomLevel((z) => Math.max(0.4, z - 0.2))}
+              className="media-page-btn"
+              title="Zoom Out"
+            >
+              −
+            </button>
+            <span
+              style={{
+                color: "var(--text-muted)",
+                fontSize: "13px",
+                width: "45px",
+                textAlign: "center",
+                cursor: "pointer",
+              }}
+              onClick={() => setZoomLevel(1.0)}
+              title="Reset Zoom to Fit"
+            >
+              {Math.round(zoomLevel * 100)}%
+            </span>
+            <button
+              onClick={() => setZoomLevel((z) => Math.min(4.0, z + 0.2))}
+              className="media-page-btn"
+              title="Zoom In"
+            >
+              +
+            </button>
+          </div>
         </div>
       </div>
     );

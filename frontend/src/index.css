@@ -299,7 +299,7 @@ MEDIA WINDOW
 
 .media-window.expanded {
   width: 45%;
-  min-width: var(--mwd); /* 💡 Your responsive boundary is preserved! */
+  min-width: var(--mwd);
 }
 
 .media-empty-state {
@@ -359,7 +359,14 @@ MEDIA WINDOW
 .media-pdf-viewport {
   flex: 1;
   position: relative;
-  overflow: hidden;
+  overflow: auto;
+
+  display: flex;
+  background-color: #333;
+}
+
+.react-pdf__Document {
+  margin: auto !important;
 }
 
 .media-iframe {
@@ -425,6 +432,15 @@ MEDIA WINDOW
 
 .media-page-text strong {
   color: white;
+}
+
+/* Responsive PDF Scaling */
+.media-react-page {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  margin: auto !important;
+  width: max-content !important;
+  height: max-content !important;
+  background-color: white;
 }
 
 /* 
