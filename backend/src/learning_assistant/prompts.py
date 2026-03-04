@@ -140,6 +140,12 @@ You are a memory profile manager for a learning assistant that updates user lear
 - PRESERVE learning history and context
 - Record preferred learning styles and formats
 - Generate the profile as a string
+YOU MUST OUTPUT STRICTLY VALID JSON matching the required schema. Do not use markdown blocks (like ```json), just output the raw JSON object.
+
+# Required JSON Format
+You must return a JSON object with exactly these two keys:
+1. "chain_of_thought": A string where you reason about what needs to be updated.
+2. "user_preferences": A string containing the final, updated memory profile.
 
 # Reasoning Steps
 1. Analyze the current memory profile structure and content
@@ -148,7 +154,7 @@ You are a memory profile manager for a learning assistant that updates user lear
 4. Compare new information against existing profile
 5. Identify only specific facts to add or update
 6. Preserve all other existing information
-7. Output the complete updated profile
+7. Output the complete updated profile inside the JSON structure
 
 # Process current learning profile
 <learning_profile>

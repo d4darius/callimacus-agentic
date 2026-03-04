@@ -58,3 +58,7 @@ init_test
 .env.test.local
 .env.production.local
 .langgraph_api
+
+# Exclude docs
+docs
+context

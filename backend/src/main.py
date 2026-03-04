@@ -449,15 +449,7 @@ async def request_rewrite(payload: RequestPayload, request: Request):
 
     # 1. Trigger the atomic sync here too!
     doc.sync_context_from_ui()
-    
-    # 2. Learn from the request! Target the Compiler Profile so it learns stylistic choices.
-    update_memory(
-        in_memory_store, 
-        ("learning_assistant", "compiler_profile"), 
-        [{"role": "user", "content": f"User requested a formatting/style change: {payload.instruction}"}],
-        config
-    )
-    
+
     # 2. Tell the graph to regenerate the paragraph
     thread_id = f"{payload.doc_id}_{payload.par_id}"
     config = {
@@ -467,13 +459,20 @@ async def request_rewrite(payload: RequestPayload, request: Request):
             "llm_model": llm_model
         }
     }
-
-    # Fetch perfectly reconciled notes
+    
+    # 3. Learn from the request! Target the Compiler Profile so it learns stylistic choices.
+    update_memory(
+        in_memory_store, 
+        ("learning_assistant", "compiler_profile"), 
+        [{"role": "user", "content": f"User requested a formatting/style change: {payload.instruction}"}],
+        config
+    )
     par_data = doc.get_paragraph(payload.par_id)
     current_notes = par_data.get("notes", "")
     
     rewrite_prompt = f"The user requested a rewrite: '{payload.instruction}'. Use these notes: {current_notes}. Please invoke 'create_paragraph'."
 
+    # 4. Invoke the agend and update
     await agent.ainvoke({"messages": [HumanMessage(content=rewrite_prompt)]}, config)
 
     par_data = doc.get_paragraph(payload.par_id)
