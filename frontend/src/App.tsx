@@ -17,7 +17,10 @@ function App() {
   // Boot Check
   useEffect(() => {
     const key = localStorage.getItem("callimachus_api_key");
-    if (!key) {
+    const llm = localStorage.getItem("callimachus_llm");
+
+    // Force setup ONLY if they have NO key AND they aren't using the local proxy!
+    if (!key && (!llm || !llm.startsWith("anti-api:"))) {
       setIsFirstLoad(true);
       setShowSettings(true);
     }

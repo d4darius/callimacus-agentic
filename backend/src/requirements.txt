@@ -24,3 +24,6 @@ torch
 torchaudio
 pydub
 numpy<2.0.0
+
+# Anti-API
+httpx

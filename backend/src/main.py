@@ -9,6 +9,11 @@ import uvicorn
 import fitz
 import asyncio
 import time
+import subprocess
+import httpx
+import signal
+import json
+from pathlib import Path
 import numpy as np
 import concurrent.futures
 from pathlib import Path
@@ -55,6 +60,7 @@ logger = logging.getLogger("CallimacusAPI")
 
 DOCS_DIR = os.getenv("DOCS_DIR", "./docs")
 CONTEXT_DIR = os.getenv("CONTEXT_DIR", "./context")
+ANTI_API_CONFIG = Path.home() / ".anti-api" / "auto_start.json"
 
 # ------------------------------------------
 # GLOBAL ML MODELS
@@ -132,6 +138,23 @@ async def lifespan(app: FastAPI):
 
     # 1. Load LangGraph Memory
     load_global_memory(in_memory_store)
+
+     # 2. Auto-Load Anti-API
+    if ANTI_API_CONFIG.exists():
+        try:
+            config = json.loads(ANTI_API_CONFIG.read_text())
+            if config.get("auto_start"):
+                logger.info("Memory shows Anti-API is active. Auto-starting in background...")
+                proxy_dir = Path("./anti-api-server")
+                if proxy_dir.exists():
+                    subprocess.Popen(
+                        ["./start.command"], 
+                        cwd=str(proxy_dir),
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+        except Exception as e:
+            logger.error(f"Failed to read Anti-API config: {e}")
     
     # 2. Boot up Faster-Whisper (Using the 'base' or 'small' model for real-time speed)
     logger.info("🧠 Loading Faster-Whisper model...")
@@ -232,6 +255,19 @@ def get_dynamic_llm(model_name: str, api_key: str):
             api_key=api_key,
             temperature=0.0
         )
+    
+def _kill_anti_api():
+    """Helper function to cleanly shut down the background processes."""
+    pid_dir = Path.home() / ".anti-api"
+    for pid_file in ["anti-api.pid", "rust-proxy.pid"]:
+        file_path = pid_dir / pid_file
+        if file_path.exists():
+            try:
+                os.kill(int(file_path.read_text().strip()), signal.SIGTERM)
+            except: pass
+            finally: file_path.unlink(missing_ok=True)
+            
+    subprocess.run("lsof -ti:8964,8965 | xargs kill -9", shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
 # ------------------------------------------
 # FILE SYSTEM & DOCUMENT ENDPOINTS
@@ -602,6 +638,133 @@ async def websocket_audio_endpoint(websocket: WebSocket):
         gate_task.cancel()
         ml_task.cancel()
         send_task.cancel()
+
+# ------------------------------------------
+# ANTI-API ENDPOINTS
+# ------------------------------------------
+
+@app.post("/api/anti-api/start")
+async def start_anti_api():
+    """Updates memory, clones the repo (if missing) and boots up the proxy server."""
+    
+    # 💡 NEW: Save to memory so it auto-starts next time
+    ANTI_API_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    ANTI_API_CONFIG.write_text(json.dumps({"auto_start": True}))
+    
+    proxy_dir = Path("./anti-api-server")
+    try:
+        if not proxy_dir.exists():
+            logger.info("Anti-API not found. Cloning repository...")
+            subprocess.run(["git", "clone", "https://github.com/ink1ing/anti-api.git", str(proxy_dir)], check=True)
+        
+        logger.info("Starting Anti-API server via start.command...")
+        subprocess.Popen(
+            ["bash", "start.command"], 
+            cwd=str(proxy_dir)
+        )
+        # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        return {"status": "starting"} 
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to setup Anti-API: {e}")
+        raise HTTPException(status_code=500, detail="Failed to initialize Anti-API repository.")
+
+
+@app.post("/api/anti-api/stop")
+async def stop_anti_api():
+    """Updates memory and gracefully shuts down the Anti-API server and Rust proxy."""
+    
+    # Remove from memory so it stays off next time
+    ANTI_API_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    ANTI_API_CONFIG.write_text(json.dumps({"auto_start": False}))
+    
+    try:
+        # Re-use your kill helper
+        _kill_anti_api()
+        logger.info("Anti-API server stopped.")
+        return {"status": "stopped"}
+    except Exception as e:
+        logger.error(f"Failed to stop Anti-API: {e}")
+        return {"status": "error"}
+
+@app.get("/api/anti-api/models")
+async def get_anti_api_models():
+    """Reaches out to the running proxy to see the actual configured/routed models."""
+    try:
+        async with httpx.AsyncClient() as client:
+            # 1. Fetch the ACTUAL routed config from the Anti-API dashboard
+            response = await client.get("http://localhost:8964/routing/config", timeout=3.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                available_models = set()
+                
+                # The data is nested under the "config" key
+                config_data = data.get("config", {})
+                
+                # A. Extract Custom Flow Routes (e.g., 'route:fast', 'route:coding')
+                for flow in config_data.get("flows", []):
+                    flow_name = flow.get("name") or flow.get("id")
+                    if flow_name:
+                        available_models.add(flow_name if flow_name.startswith("route:") else f"route:{flow_name}")
+                
+                # B. Extract active models from accountRouting
+                account_routing = config_data.get("accountRouting", {})
+                routes = account_routing.get("routes", [])
+                
+                for route in routes:
+                    model_id = route.get("modelId")
+                    entries = route.get("entries", [])
+                    
+                    # Only add the model if 'entries' is NOT empty!
+                    if model_id and len(entries) > 0:
+                        available_models.add(model_id)
+                
+                # Return the custom routed models if we found any!
+                if available_models:
+                    return {"models": sorted(list(available_models))}
+            
+            # 2. Fallback to standard v1/models if routing hasn't been configured yet
+            fallback_response = await client.get("http://localhost:8964/v1/models", timeout=3.0)
+            fallback_data = fallback_response.json()
+            models = [model["id"] for model in fallback_data.get("data", [])]
+            return {"models": models}
+            
+    except Exception as e:
+        logger.warning(f"Could not fetch models from Anti-API: {e}")
+        raise HTTPException(status_code=503, detail="Proxy server not responding yet.")
+    
+@app.post("/api/anti-api/stop")
+async def stop_anti_api():
+    """Gracefully shuts down the Anti-API server and Rust proxy."""
+    try:
+        # The mac.sh script saves PIDs to the user's home directory
+        pid_dir = Path.home() / ".anti-api"
+        
+        for pid_file in ["anti-api.pid", "rust-proxy.pid"]:
+            file_path = pid_dir / pid_file
+            if file_path.exists():
+                try:
+                    pid = int(file_path.read_text().strip())
+                    os.kill(pid, signal.SIGTERM) # Safely asks the process to terminate
+                except ProcessLookupError:
+                    pass # Process is already dead
+                except Exception as e:
+                    logger.warning(f"Could not gracefully kill PID {pid}: {e}")
+                finally:
+                    file_path.unlink(missing_ok=True) # Clean up the file
+        
+        # Failsafe: forcefully kill anything lingering on the proxy ports
+        subprocess.run(
+            "lsof -ti:8964,8965 | xargs kill -9", 
+            shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL
+        )
+        
+        logger.info("Anti-API server stopped.")
+        return {"status": "stopped"}
+    except Exception as e:
+        logger.error(f"Failed to stop Anti-API: {e}")
+        return {"status": "error"}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
