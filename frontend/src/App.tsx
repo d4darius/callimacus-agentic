@@ -16,14 +16,24 @@ function App() {
 
   // Boot Check
   useEffect(() => {
-    const key = localStorage.getItem("callimachus_api_key");
-    const llm = localStorage.getItem("callimachus_llm");
+    // Load from Backend Settings
+    fetch("http://localhost:8000/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        const key = data.api_key;
+        const llm = data.llm_model;
 
-    // Force setup ONLY if they have NO key AND they aren't using the local proxy!
-    if (!key && (!llm || !llm.startsWith("anti-api:"))) {
-      setIsFirstLoad(true);
-      setShowSettings(true);
-    }
+        // If no API key is found AND it's not set to the local proxy, show setup
+        if (!key && (!llm || !llm.startsWith("anti-api:"))) {
+          setIsFirstLoad(true);
+          setShowSettings(true);
+        }
+      })
+      .catch(() => {
+        // If the backend isn't responding yet, play it safe and prompt setup
+        setIsFirstLoad(true);
+        setShowSettings(true);
+      });
   }, []);
 
   return (
