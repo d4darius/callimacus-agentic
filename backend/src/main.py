@@ -59,8 +59,12 @@ logging.basicConfig(
 logger = logging.getLogger("CallimacusAPI")
 
 DOCS_DIR = os.getenv("DOCS_DIR", "./docs")
-CONTEXT_DIR = os.getenv("CONTEXT_DIR", "./context")
-ANTI_API_CONFIG = Path.home() / ".anti-api" / "auto_start.json"
+
+CALLIMACHUS_DIR = Path.home() / ".callimachus"
+CALLIMACHUS_DIR.mkdir(parents=True, exist_ok=True)
+CONTEXT_DIR = os.getenv("CONTEXT_DIR", str(CALLIMACHUS_DIR / "context"))
+Path(CONTEXT_DIR).mkdir(parents=True, exist_ok=True)
+CONFIG_FILE = CALLIMACHUS_DIR / "config.json"
 
 # ------------------------------------------
 # GLOBAL ML MODELS
@@ -139,24 +143,19 @@ async def lifespan(app: FastAPI):
     # 1. Load LangGraph Memory
     load_global_memory(in_memory_store)
 
-     # 2. Auto-Load Anti-API
-    if ANTI_API_CONFIG.exists():
+    # 2. Auto-Load Anti-API
+    if CONFIG_FILE.exists():
         try:
-            config = json.loads(ANTI_API_CONFIG.read_text())
+            config = json.loads(CONFIG_FILE.read_text())
             if config.get("auto_start"):
                 logger.info("Memory shows Anti-API is active. Auto-starting in background...")
-                proxy_dir = Path("./anti-api-server")
+                proxy_dir = CALLIMACHUS_DIR / "anti-api-server" # 💡 NEW CLONE PATH
                 if proxy_dir.exists():
-                    subprocess.Popen(
-                        ["./start.command"], 
-                        cwd=str(proxy_dir),
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL
-                    )
+                    subprocess.Popen(["bash", "start.command"], cwd=str(proxy_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
-            logger.error(f"Failed to read Anti-API config: {e}")
+            logger.error(f"Failed to read config: {e}")
     
-    # 2. Boot up Faster-Whisper (Using the 'base' or 'small' model for real-time speed)
+    # 3. Boot up Faster-Whisper (Using the 'base' or 'small' model for real-time speed)
     logger.info("🧠 Loading Faster-Whisper model...")
     cache_path = os.path.expanduser("~/.cache/huggingface/hub/models--Systran--faster-whisper-base/snapshots/")
     
@@ -278,6 +277,28 @@ class RenameUpdate(BaseModel):
     new_id: str   # e.g., "history_exam_v2"
     new_name: str # e.g., "History Exam V2"
 
+class SettingsPayload(BaseModel):
+    api_key: str
+    llm_model: str
+    background: str
+    preferences: str
+
+@app.get("/api/settings")
+def get_settings():
+    if CONFIG_FILE.exists():
+        return json.loads(CONFIG_FILE.read_text())
+    return {"api_key": "", "llm_model": "gpt-4o", "background": "", "preferences": "", "auto_start": False}
+
+@app.post("/api/settings")
+def save_settings(payload: SettingsPayload):
+    data = {}
+    if CONFIG_FILE.exists():
+        data = json.loads(CONFIG_FILE.read_text())
+        
+    data.update(payload.dict())
+    CONFIG_FILE.write_text(json.dumps(data))
+    return {"status": "saved"}
+
 @app.post("/api/docs/{doc_id}/rename")
 def rename_doc(doc_id: str, payload: RenameUpdate):
     doc = get_document(doc_id)
@@ -366,9 +387,12 @@ class ProcessPayload(BaseModel):
 async def process_paragraph(payload: ProcessPayload, request: Request):
     """Triggers the LangGraph agent to analyze sources and either compile or pause for HITL."""
 
-    # 0. Extract headers sent by React
-    api_key = request.headers.get("x-api-key", "")
-    llm_model = request.headers.get("x-llm-model", "gpt-4o")
+    # 0. Extract headers from config
+    config_data = {}
+    if CONFIG_FILE.exists():
+        config_data = json.loads(CONFIG_FILE.read_text())
+    api_key = config_data.get("api_key", "")
+    llm_model = config_data.get("llm_model", "gpt-4o")
     
     # 1. Ensure document is loaded in storage
     doc = get_document(payload.doc_id)
@@ -432,8 +456,11 @@ class ResumePayload(BaseModel):
 async def resume_agent(payload: ResumePayload, request: Request):
     """Resumes a paused graph after the user answers the clarification question."""
 
-    api_key = request.headers.get("x-api-key", "")
-    llm_model = request.headers.get("x-llm-model", "gpt-4o")
+    config_data = {}
+    if CONFIG_FILE.exists():
+        config_data = json.loads(CONFIG_FILE.read_text())
+    api_key = config_data.get("api_key", "")
+    llm_model = config_data.get("llm_model", "gpt-4o")
     
     thread_id = f"{payload.doc_id}_{payload.par_id}"
     config = {
@@ -478,8 +505,11 @@ class RequestPayload(BaseModel):
 async def request_rewrite(payload: RequestPayload, request: Request):
     """Updates the Compiler's global memory and forces a paragraph rewrite."""
 
-    api_key = request.headers.get("x-api-key", "")
-    llm_model = request.headers.get("x-llm-model", "gpt-4o")
+    config_data = {}
+    if CONFIG_FILE.exists():
+        config_data = json.loads(CONFIG_FILE.read_text())
+    api_key = config_data.get("api_key", "")
+    llm_model = config_data.get("llm_model", "gpt-4o")
 
     doc = get_document(payload.doc_id)
 
@@ -645,47 +675,35 @@ async def websocket_audio_endpoint(websocket: WebSocket):
 
 @app.post("/api/anti-api/start")
 async def start_anti_api():
-    """Updates memory, clones the repo (if missing) and boots up the proxy server."""
+    # Save to the new master config file
+    data = json.loads(CONFIG_FILE.read_text()) if CONFIG_FILE.exists() else {}
+    data["auto_start"] = True
+    CONFIG_FILE.write_text(json.dumps(data))
     
-    # 💡 NEW: Save to memory so it auto-starts next time
-    ANTI_API_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    ANTI_API_CONFIG.write_text(json.dumps({"auto_start": True}))
-    
-    proxy_dir = Path("./anti-api-server")
+    proxy_dir = CALLIMACHUS_DIR / "anti-api-server" # 💡 NEW CLONE PATH
     try:
         if not proxy_dir.exists():
-            logger.info("Anti-API not found. Cloning repository...")
+            logger.info("Anti-API not found. Cloning repository to hidden folder...")
             subprocess.run(["git", "clone", "https://github.com/ink1ing/anti-api.git", str(proxy_dir)], check=True)
         
         logger.info("Starting Anti-API server via start.command...")
-        subprocess.Popen(
-            ["bash", "start.command"], 
-            cwd=str(proxy_dir)
-        )
-        # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        subprocess.Popen(["bash", "start.command"], cwd=str(proxy_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"status": "starting"} 
         
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to setup Anti-API: {e}")
         raise HTTPException(status_code=500, detail="Failed to initialize Anti-API repository.")
 
-
 @app.post("/api/anti-api/stop")
 async def stop_anti_api():
-    """Updates memory and gracefully shuts down the Anti-API server and Rust proxy."""
+    # Remove auto-start from the master config file
+    if CONFIG_FILE.exists():
+        data = json.loads(CONFIG_FILE.read_text())
+        data["auto_start"] = False
+        CONFIG_FILE.write_text(json.dumps(data))
     
-    # Remove from memory so it stays off next time
-    ANTI_API_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    ANTI_API_CONFIG.write_text(json.dumps({"auto_start": False}))
-    
-    try:
-        # Re-use your kill helper
-        _kill_anti_api()
-        logger.info("Anti-API server stopped.")
-        return {"status": "stopped"}
-    except Exception as e:
-        logger.error(f"Failed to stop Anti-API: {e}")
-        return {"status": "error"}
+    _kill_anti_api()
+    return {"status": "stopped"}
 
 @app.get("/api/anti-api/models")
 async def get_anti_api_models():
@@ -716,19 +734,13 @@ async def get_anti_api_models():
                     model_id = route.get("modelId")
                     entries = route.get("entries", [])
                     
-                    # Only add the model if 'entries' is NOT empty!
                     if model_id and len(entries) > 0:
                         available_models.add(model_id)
                 
-                # Return the custom routed models if we found any!
-                if available_models:
-                    return {"models": sorted(list(available_models))}
+                return {"models": sorted(list(available_models))}
             
-            # 2. Fallback to standard v1/models if routing hasn't been configured yet
-            fallback_response = await client.get("http://localhost:8964/v1/models", timeout=3.0)
-            fallback_data = fallback_response.json()
-            models = [model["id"] for model in fallback_data.get("data", [])]
-            return {"models": models}
+            # If it's not 200 OK, raise an error so React KEEPS POLLING!
+            raise HTTPException(status_code=503, detail="Proxy port open but config not ready.")
             
     except Exception as e:
         logger.warning(f"Could not fetch models from Anti-API: {e}")

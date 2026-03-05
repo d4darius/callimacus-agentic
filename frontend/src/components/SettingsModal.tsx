@@ -27,26 +27,30 @@ export default function SettingsModal({
 
   // Load existing settings on mount
   useEffect(() => {
-    setApiKey(localStorage.getItem("callimachus_api_key") || "");
-    const savedModel = localStorage.getItem("callimachus_llm") || "gpt-4o";
-    setLlmModel(savedModel);
+    fetch("http://localhost:8000/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        setApiKey(data.api_key || "");
+        setLlmModel(data.llm_model || "gpt-4o");
 
-    // Auto-detect if they were previously using anti-api
-    if (savedModel.startsWith("anti-api:")) {
-      setApiMode("anti-api");
-      // The backend already started it on boot! Just wait for it to be ready.
-      setAntiApiStatus("starting");
-      fetchAntiApiModels(15);
-    }
+        if (data.llm_model && data.llm_model.startsWith("anti-api:")) {
+          setApiMode("anti-api");
 
-    setBackground(
-      localStorage.getItem("callimachus_background") ||
-        "I am a student taking detailed lecture notes.",
-    );
-    setPreferences(
-      localStorage.getItem("callimachus_preferences") ||
-        "Use bullet points and concise language.",
-    );
+          // If we are in anti-api mode, immediately check if it's already running
+          // We use 0 retries because we just want a quick status update, not a long boot-loop
+          fetchAntiApiModels(0);
+        }
+
+        setBackground(
+          data.background || "I am a student taking detailed lecture notes.",
+        );
+        setPreferences(
+          data.preferences || "Use bullet points and concise language.",
+        );
+      })
+      .catch((err) =>
+        console.error("Failed to load settings from backend", err),
+      );
   }, []);
 
   // --- ANTI-API CONTROLS ---
@@ -58,7 +62,7 @@ export default function SettingsModal({
       });
       if (res.ok) {
         // Start polling the server. It will try 5 times (waiting 2 seconds between each try)
-        fetchAntiApiModels(5);
+        fetchAntiApiModels(60);
       } else {
         setAntiApiStatus("error");
       }
@@ -69,24 +73,43 @@ export default function SettingsModal({
   };
 
   // Wait for Bun and Rust to compile!
-  const fetchAntiApiModels = async (retries = 0) => {
+  const fetchAntiApiModels = async (
+    retries = 0,
+    isVerificationPhase = false,
+  ) => {
     try {
       const res = await fetch("http://localhost:8000/api/anti-api/models");
+
       if (res.ok) {
+        // 1. If it's the first time we get a 200 OK, don't trust it yet!
+        if (!isVerificationPhase) {
+          console.log(
+            "Proxy port opened! Waiting 3 seconds to verify stability...",
+          );
+          // Wait 3 seconds, then call this exact function again in "Verification Mode"
+          setTimeout(() => fetchAntiApiModels(retries, true), 3000);
+          return;
+        }
+
+        // 2. If we made it here, it survived the 3-second stabilization phase!
         const data = await res.json();
         setAntiApiModels(data.models || []);
-        setAntiApiStatus("running"); // ONLY set to running once we get a successful response
+        setAntiApiStatus("running");
       } else {
-        throw new Error("Proxy not ready yet");
+        throw new Error("Proxy returned a non-200 status");
       }
     } catch (err) {
+      // 3. If it fails (even during the verification phase), fall back into the retry loop
       if (retries > 0) {
         console.warn(
-          `Anti-API compiling/booting... Retrying in 2s. (${retries} attempts left)`,
+          `Anti-API booting/stabilizing... Retrying in 2s. (${retries} attempts left)`,
         );
-        setTimeout(() => fetchAntiApiModels(retries - 1), 2000);
+        // Ensure the next retry resets the verification phase to false
+        setTimeout(() => fetchAntiApiModels(retries - 1, false), 2000);
       } else {
-        console.error("Anti-API failed to boot after multiple attempts.");
+        console.error(
+          "Anti-API failed to boot or stabilize after multiple attempts.",
+        );
         setAntiApiStatus("error");
       }
     }
@@ -114,7 +137,7 @@ export default function SettingsModal({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (apiMode === "personal" && !apiKey.trim()) {
       alert("An API Key is required for Personal API mode.");
       return;
@@ -124,12 +147,23 @@ export default function SettingsModal({
       return;
     }
 
-    localStorage.setItem("callimachus_api_key", apiKey.trim());
-    localStorage.setItem("callimachus_llm", llmModel);
-    localStorage.setItem("callimachus_background", background);
-    localStorage.setItem("callimachus_preferences", preferences);
-
-    onSave();
+    // Post directly to the Python backend instead of localStorage!
+    try {
+      await fetch("http://localhost:8000/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: apiKey.trim(),
+          llm_model: llmModel,
+          background: background,
+          preferences: preferences,
+        }),
+      });
+      onSave();
+    } catch (err) {
+      alert("Failed to save settings to the backend.");
+      console.error(err);
+    }
   };
 
   return (
@@ -397,16 +431,24 @@ export default function SettingsModal({
                     >
                       Available Local Models
                     </label>
-                    <span
-                      onClick={() => fetchAntiApiModels()}
-                      style={{
-                        fontSize: "0.8rem",
-                        color: "var(--accent-blue)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      ↻ Refresh
-                    </span>
+
+                    {/* Visible on 'running' OR 'error', but hidden during 'starting' */}
+                    {(antiApiStatus === "running" ||
+                      antiApiStatus === "error") && (
+                      <span
+                        onClick={() => {
+                          setAntiApiStatus("starting"); // Instantly updates UI to "Booting..."
+                          fetchAntiApiModels(0); // 0 retries = just does 1 manual check
+                        }}
+                        style={{
+                          fontSize: "0.8rem",
+                          color: "var(--accent-blue)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        ↻ Refresh
+                      </span>
+                    )}
                   </div>
 
                   {/* Model Selector - Disabled until running */}
