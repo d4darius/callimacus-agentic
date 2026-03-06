@@ -121,6 +121,7 @@ Organize the inputs into highly structured, concise notes following a strict Not
 - NO EMOJIS: Do not use emojis in titles or text.
 - **Code Tagging:** The specific term being defined must be marked as `code` ONLY the first time it appears.
 - **Emphasis:** Use **bold** to highlight highly useful concepts, key metrics, or crucial takeaways.
+- **Math equations:** Mathematical equations should be formatted using $$...$$ for standalone block equations, and $ ... $ for inline notation directly within sentences.
 - **Quotes:** If you see italicized sentences between semicolons in the input, report them as exact quotes using blockquotes (>) and do not alter their contents.
 - **Tables (Pros/Cons):** If the sources discuss advantages/disadvantages or pros/cons, you MUST format them as a Markdown table instead of bullet points.
 

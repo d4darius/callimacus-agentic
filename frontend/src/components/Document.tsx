@@ -3,6 +3,7 @@ import {
   BlockNoteEditor,
   BlockNoteSchema,
   defaultBlockSpecs,
+  defaultInlineContentSpecs,
 } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import {
@@ -18,6 +19,7 @@ import {
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { MathBlock } from "./MathBlock";
+import { InlineMathNode } from "./InlineMathNode";
 
 /* INTERFACES AND PROPS */
 interface DocumentProps {
@@ -31,6 +33,10 @@ const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     math: MathBlock(),
+  },
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    mathInline: InlineMathNode,
   },
 });
 
@@ -68,17 +74,61 @@ const parseMarkdownWithMath = async (editor: any, markdown: string) => {
 
   for (const part of parts) {
     if (part.startsWith("$$") && part.endsWith("$$")) {
-      // It is math! Handle it custom.
       const mathContent = part.slice(2, -2).trim();
       blocks.push({
         type: "math",
         props: { content: mathContent },
       });
     } else if (part.trim()) {
-      // It is standard Markdown! Give it back to BlockNote to parse correctly.
+      // Let BlockNote parse the rich text natively
       const parsedNativeBlocks = await editor.tryParseMarkdownToBlocks(
         part.trim(),
       );
+
+      // Post-process the AST to extract inline $ math $
+      const processContent = (content: any[]) => {
+        const newContent: any[] = [];
+        for (const node of content) {
+          if (node.type === "text" && node.text.includes("$")) {
+            // Split by single $
+            const inlineParts = node.text.split(/(\$.*?\$)/g);
+            for (const inlinePart of inlineParts) {
+              if (
+                inlinePart.startsWith("$") &&
+                inlinePart.endsWith("$") &&
+                inlinePart.length > 1
+              ) {
+                newContent.push({
+                  type: "mathInline",
+                  props: { equation: inlinePart.slice(1, -1) }, // Extract inner math
+                });
+              } else if (inlinePart.length > 0) {
+                newContent.push({
+                  ...node, // CRITICAL: Preserves bold/italic styles!
+                  text: inlinePart,
+                });
+              }
+            }
+          } else {
+            newContent.push(node);
+          }
+        }
+        return newContent;
+      };
+
+      // Deep traverse the blocks (handles nested bullets/paragraphs)
+      const traverseAndProcess = (b: any[]) => {
+        for (const block of b) {
+          if (block.content && Array.isArray(block.content)) {
+            block.content = processContent(block.content);
+          }
+          if (block.children && Array.isArray(block.children)) {
+            traverseAndProcess(block.children);
+          }
+        }
+      };
+
+      traverseAndProcess(parsedNativeBlocks);
       blocks.push(...parsedNativeBlocks);
     }
   }
@@ -114,6 +164,47 @@ const insertMathItem = (editor: any) => ({
 // ==========================================
 // CUSTOM TOOLBAR COMPONENTS (STABLE)
 // ==========================================
+
+const convertToInlineMath = (editor: any) => {
+  try {
+    const selectedText = editor.getSelectedText();
+    const cleanEquation = selectedText.replace(/\$/g, "").trim() || "x";
+
+    editor.insertInlineContent([
+      {
+        type: "mathInline",
+        props: { equation: cleanEquation },
+      } as any,
+    ]);
+  } catch (e) {
+    console.error("Failed to convert to inline math", e);
+  }
+};
+
+// Converts highlighted text into an inline math node!
+const InlineMathToolbarButton = () => {
+  const editor = useBlockNoteEditor();
+
+  return (
+    <button
+      onClick={() => convertToInlineMath(editor)}
+      style={{
+        background: "transparent",
+        border: "none",
+        color: "var(--text-main)",
+        fontWeight: "bold",
+        cursor: "pointer",
+        fontSize: "14px",
+        display: "flex",
+        alignItems: "center",
+        padding: "0 8px",
+      }}
+      title="Equation (Cmd/Ctrl+E)" // <-- Tooltip updated!
+    >
+      ∑
+    </button>
+  );
+};
 
 const RewriteToolbarButton = () => {
   const editor = useBlockNoteEditor();
@@ -183,6 +274,7 @@ const CustomFormattingToolbar = (props: any) => (
       key={"underlineStyleButton"}
     />
     <BasicTextStyleButton basicTextStyle={"strike"} key={"strikeStyleButton"} />
+    <InlineMathToolbarButton key={"inlineMathButton"} />
     <CreateLinkButton key={"createLinkButton"} />
     <div
       style={{
@@ -513,11 +605,20 @@ function Document({
     }
 
     const typedText = registerEntry.blocksPayload
-      .map((block) =>
-        Array.isArray(block.content)
-          ? block.content.map((c: any) => c.text).join("")
-          : "",
-      )
+      .map((block) => {
+        if (block.type === "math") return `$$\n${block.props.content}\n$$`;
+
+        if (Array.isArray(block.content)) {
+          return block.content
+            .map((c: any) => {
+              if (c.type === "text") return c.text;
+              if (c.type === "mathInline") return `$${c.props.equation}$`;
+              return "";
+            })
+            .join("");
+        }
+        return "";
+      })
       .join("\n\n");
 
     const payload = {
@@ -795,6 +896,17 @@ function Document({
     });
   };
 
+  // Listens for the keyboard shortcut
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Check if Cmd (Mac) or Ctrl (Windows) is held down along with the 'e' key
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") {
+      e.preventDefault(); // Stop the browser from doing its default action
+      if (editor) {
+        convertToInlineMath(editor);
+      }
+    }
+  };
+
   // 3) TRACK TYPING & AUTOSAVE
   const handleEditorChange = async () => {
     if (!editor) return;
@@ -1050,6 +1162,7 @@ function Document({
         onChange={handleEditorChange}
         onSelectionChange={manageTimers}
         formattingToolbar={false}
+        onKeyDown={handleKeyDown}
       >
         <FormattingToolbarController
           formattingToolbar={CustomFormattingToolbar}
