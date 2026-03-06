@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { BlockNoteEditor } from "@blocknote/core";
+import {
+  BlockNoteEditor,
+  BlockNoteSchema,
+  defaultBlockSpecs,
+} from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import {
   FormattingToolbarController,
@@ -8,9 +12,12 @@ import {
   BlockTypeSelect,
   CreateLinkButton,
   useBlockNoteEditor,
+  SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
 } from "@blocknote/react";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
+import { MathBlock } from "./MathBlock";
 
 /* INTERFACES AND PROPS */
 interface DocumentProps {
@@ -19,6 +26,13 @@ interface DocumentProps {
   isSessionActive: boolean;
   onDelete: () => void;
 }
+
+const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    math: MathBlock(),
+  },
+});
 
 /* HELPER FUNCTIONS */
 async function fetchDocContent(docId: string): Promise<string> {
@@ -46,6 +60,56 @@ async function saveDocContent(
   );
   if (!res.ok) throw new Error(`Failed to save doc: ${docId}`);
 }
+
+// LATEX PARSER: Scans LLM text and separates math from normal paragraphs
+const parseMarkdownWithMath = async (editor: any, markdown: string) => {
+  const blocks: any[] = [];
+  const parts = markdown.split(/(\$\$.*?\$\$)/gs);
+
+  for (const part of parts) {
+    if (part.startsWith("$$") && part.endsWith("$$")) {
+      // It is math! Handle it custom.
+      const mathContent = part.slice(2, -2).trim();
+      blocks.push({
+        type: "math",
+        props: { content: mathContent },
+      });
+    } else if (part.trim()) {
+      // It is standard Markdown! Give it back to BlockNote to parse correctly.
+      const parsedNativeBlocks = await editor.tryParseMarkdownToBlocks(
+        part.trim(),
+      );
+      blocks.push(...parsedNativeBlocks);
+    }
+  }
+  return blocks;
+};
+
+// 💡 THE FIX: Safely transform the current block instead of inserting a new one
+const insertMathItem = (editor: any) => ({
+  title: "Equation (LaTeX)",
+  onItemClick: () => {
+    try {
+      // Get the block the user just typed "/math" into
+      const currentBlock = editor.getTextCursorPosition()?.block;
+
+      if (currentBlock) {
+        // Transform the text block directly into our Math block!
+        // This automatically deletes the "/math" text for a clean UI.
+        editor.updateBlock(currentBlock, {
+          type: "math",
+          props: { content: "e=mc^2" },
+        });
+      }
+    } catch (err) {
+      console.error("Failed to insert math block", err);
+    }
+  },
+  aliases: ["math", "equation", "latex", "formula"],
+  group: "Advanced",
+  icon: <span style={{ fontSize: "16px", fontWeight: "bold" }}>∑</span>,
+  subtext: "Insert a mathematical equation block.",
+});
 
 // ==========================================
 // CUSTOM TOOLBAR COMPONENTS (STABLE)
@@ -215,6 +279,7 @@ function Document({
 
         const newEditor = BlockNoteEditor.create({
           initialContent: initialBlocks,
+          schema: schema,
         });
 
         // PRE-LOAD THE REGISTER TO PREVENT SPAMMING THE LLM
@@ -249,7 +314,7 @@ function Document({
         setEditor(newEditor);
       } catch (e) {
         if (e instanceof Error && e.message.includes("404")) {
-          const emptyEditor = BlockNoteEditor.create();
+          const emptyEditor = BlockNoteEditor.create({ schema: schema });
           setEditor(emptyEditor);
         } else {
           setError("failed");
@@ -316,7 +381,7 @@ function Document({
 
     try {
       // 1. Let BlockNote natively parse the AI's Markdown
-      const newBlocks = await editor.tryParseMarkdownToBlocks(markdown);
+      const newBlocks = await parseMarkdownWithMath(editor, markdown);
 
       // 2. Find the exact boundaries of the target paragraph in the document
       const currentDoc = editor.document;
@@ -988,6 +1053,28 @@ function Document({
       >
         <FormattingToolbarController
           formattingToolbar={CustomFormattingToolbar}
+        />
+        <SuggestionMenuController
+          triggerCharacter={"/"}
+          getItems={async (query) => {
+            // 1. Combine default items with our custom math item
+            const allItems = [
+              ...getDefaultReactSlashMenuItems(editor),
+              insertMathItem(editor),
+            ];
+
+            // 2. Manually filter them using standard JavaScript!
+            return allItems.filter((item) => {
+              const queryLower = query.toLowerCase();
+              const matchesTitle = item.title
+                .toLowerCase()
+                .includes(queryLower);
+              const matchesAlias = item.aliases?.some((alias) =>
+                alias.toLowerCase().includes(queryLower),
+              );
+              return matchesTitle || matchesAlias;
+            });
+          }}
         />
       </BlockNoteView>
       {/* REWRITE INSTRUCTION POPOVER */}

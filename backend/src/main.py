@@ -536,8 +536,12 @@ async def request_rewrite(payload: RequestPayload, request: Request):
     par_data = doc.get_paragraph(payload.par_id)
     current_notes = par_data.get("notes", "")
     
-    rewrite_prompt = f"The user requested a rewrite: '{payload.instruction}'. Use these notes: {current_notes}. Please invoke 'create_paragraph'."
+    rewrite_prompt = f"""The user requested a rewrite: '{payload.instruction}'. 
+    Use these notes: {current_notes}. 
 
+    CRITICAL INSTRUCTIONS:
+    1. You MUST apply rich Markdown formatting (bolding, bullet points) and use $$ LaTeX $$ for all math equations, even if the user asks for the text "exactly as the notes".
+    2. Please invoke 'create_paragraph' using exactly doc_id: '{payload.doc_id}' and par_id: '{payload.par_id}'."""
     # 4. Invoke the agend and update
     await agent.ainvoke({"messages": [HumanMessage(content=rewrite_prompt)]}, config)
 
