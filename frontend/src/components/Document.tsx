@@ -70,7 +70,7 @@ async function saveDocContent(
 // LATEX PARSER: Scans LLM text and separates math from normal paragraphs
 const parseMarkdownWithMath = async (editor: any, markdown: string) => {
   const blocks: any[] = [];
-  const parts = markdown.split(/(\$\$.*?\$\$)/gs);
+  const parts = markdown.split(/(\$\$.*?\$\$|!\[.*?\]\(.*?\))/gs);
 
   for (const part of parts) {
     if (part.startsWith("$$") && part.endsWith("$$")) {
@@ -79,6 +79,30 @@ const parseMarkdownWithMath = async (editor: any, markdown: string) => {
         type: "math",
         props: { content: mathContent },
       });
+    } else if (part.startsWith("![") && part.endsWith(")")) {
+      // Handle Image Block
+      const match = part.match(/!\[(.*?)\]\((.*?)\)/);
+      if (match) {
+        let imageUrl = match[2];
+
+        //  Auto-append the local server path if the AI just output the filename
+        if (!imageUrl.startsWith("http")) {
+          imageUrl = `http://localhost:8000/imgs/${imageUrl}`;
+        }
+
+        // Point it to the permanent file the backend just renamed!
+        if (imageUrl.includes("temp_")) {
+          imageUrl = imageUrl.replace("temp_", "img_");
+        }
+
+        blocks.push({
+          type: "image",
+          props: {
+            name: match[1] || "Image",
+            url: imageUrl,
+          },
+        });
+      }
     } else if (part.trim()) {
       // Let BlockNote parse the rich text natively
       const parsedNativeBlocks = await editor.tryParseMarkdownToBlocks(
@@ -348,6 +372,18 @@ function Document({
   useEffect(() => {
     let isMounted = true;
 
+    // Upload logic that talks to our backend
+    const uploadFile = async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("http://localhost:8000/api/media/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      return data.url; // Returns the clean URL to the image!
+    };
+
     async function loadInitialData() {
       try {
         setError("");
@@ -369,9 +405,11 @@ function Document({
 
         if (!isMounted) return;
 
+        // Inject it into the main editor
         const newEditor = BlockNoteEditor.create({
           initialContent: initialBlocks,
           schema: schema,
+          uploadFile: uploadFile,
         });
 
         // PRE-LOAD THE REGISTER TO PREVENT SPAMMING THE LLM
@@ -406,7 +444,11 @@ function Document({
         setEditor(newEditor);
       } catch (e) {
         if (e instanceof Error && e.message.includes("404")) {
-          const emptyEditor = BlockNoteEditor.create({ schema: schema });
+          // Inject it into the fallback editor too!
+          const emptyEditor = BlockNoteEditor.create({
+            schema: schema,
+            uploadFile: uploadFile, // <-- Added here!
+          });
           setEditor(emptyEditor);
         } else {
           setError("failed");

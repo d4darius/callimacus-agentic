@@ -90,6 +90,7 @@ Notes: {notes}
 tools_prompt="""
 - ask_question: ask a question to the user to clarify ambiguities or solve disputes between contradicting sources.
 - create_paragraph: combine the sources together into a finalized paragraph and store it to the document.
+- extract_image: extract an image from the current document to insert it in a given paragraph.
 """
 
 default_background = """

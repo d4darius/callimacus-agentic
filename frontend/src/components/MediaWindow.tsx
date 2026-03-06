@@ -14,7 +14,7 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
   // We store the File object itself instead of a blob URL
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
-
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [extractedPages, setExtractedPages] = useState<Record<string, string>>(
@@ -117,6 +117,7 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
         const data = await res.json();
 
         if (data.status === "completed") {
+          setSessionId(data.session_id);
           setExtractedPages(data.pages);
           setTotalPages(data.total_pages);
           setCurrentPage(1);
@@ -134,7 +135,19 @@ function MediaWindow({ onToggleExpand }: MediaWindowProps) {
     }
   };
 
-  const closePdf = () => {
+  const closePdf = async () => {
+    // Tell the backend to wipe all unused temp images!
+    if (sessionId) {
+      try {
+        await fetch(`http://localhost:8000/api/media/cleanup/${sessionId}`, {
+          method: "DELETE",
+        });
+      } catch (e) {
+        console.error("Failed to cleanup media", e);
+      }
+    }
+
+    setSessionId(null);
     setPdfFile(null);
     setExtractedPages({});
     setCurrentPage(1);

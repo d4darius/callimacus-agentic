@@ -1,6 +1,9 @@
 import os
 import json
 import logging
+import uuid
+import shutil
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Literal, Dict, Annotated, Any
 from langchain.tools import tool, InjectedToolArg
@@ -190,7 +193,7 @@ async def create_paragraph(doc_id: str, par_id: str, config: Annotated[RunnableC
     return {"success": True, "content": produced_output.content}
 
 @tool
-async def extract_image(doc_id: str, par_id: str, image: Any):
+async def extract_image(doc_id: str, par_id: str, image_filename: Any):
     """
     This tool extracts an image from a screenshot of the current media being read alongside the notes and inserts it into
     the par_id
@@ -200,16 +203,49 @@ async def extract_image(doc_id: str, par_id: str, image: Any):
     - When the media actually contains an image
 
     # ARGS:
+    - doc_id: the id of the document where to insert the image
     - par_id: the id of the paragraph where to insert the image
-    - image: the screenshot of the OCR that we want to process
+    - image_filename: the name of the image file to be inserted into the paragraph
 
     # RETURNS:
     A dict containing the status of the output and a description of the image just inserted
     """
-    pass
+    doc_ref = DOCUMENT_STORAGE.get(doc_id)
+    if not doc_ref:
+        return {"success": False, "error": f"Document {doc_id} not found"}
+        
+    images_dir = Path.home() / ".callimachus" / "imgs"
+
+    safe_filename = os.path.basename(image_filename) 
+
+    # Ensure it only targets temp files
+    if not safe_filename.startswith("temp_"):
+        return {"success": False, "error": "Can only extract temporary session images."}
+        
+    temp_path = images_dir / image_filename
+    
+    if not temp_path.exists():
+        return {"success": False, "error": f"Image {image_filename} no longer exists."}
+        
+    # Promote the temp file to a permanent, safe file!
+    ext = image_filename.split(".")[-1] if "." in image_filename else "png"
+    perm_filename = safe_filename.replace("temp_", "img_")
+    perm_path = images_dir / perm_filename
+    
+    # Move/Rename the file so it escapes the cleanup script
+    shutil.move(str(temp_path), str(perm_path))
+    
+    image_markdown = f"![Visual Reference](http://localhost:8000/imgs/{perm_filename})"
+    instruction = (
+        f"CRITICAL REQUIREMENT: You MUST include this exact markdown string to render the extracted image: {image_markdown}\n"
+        "Do NOT simply append it to the very end of the text. You MUST place this markdown block wherever it is most contextually relevant in your explanation (e.g., immediately following the introduction of the concept it illustrates). "
+        "Place it on its own dedicated blank line to ensure it renders beautifully."
+    )
+    doc_ref.add_additional_note(par_id, instruction)    
+    return {"success": True, "message": f"Image extracted and secured as {perm_filename}."}
 
 # Augment the LLM with tools
-tools = [ask_question, create_paragraph] # add extract_image
+tools = [ask_question, create_paragraph, extract_image]
 tools_by_name = {tool.name: tool for tool in tools}
 
 #-----------------------

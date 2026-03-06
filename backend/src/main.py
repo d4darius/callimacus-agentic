@@ -13,6 +13,8 @@ import subprocess
 import httpx
 import signal
 import json
+import uuid
+import shutil
 from pathlib import Path
 import numpy as np
 import concurrent.futures
@@ -21,6 +23,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
@@ -65,6 +68,8 @@ CALLIMACHUS_DIR.mkdir(parents=True, exist_ok=True)
 CONTEXT_DIR = os.getenv("CONTEXT_DIR", str(CALLIMACHUS_DIR / "context"))
 Path(CONTEXT_DIR).mkdir(parents=True, exist_ok=True)
 CONFIG_FILE = CALLIMACHUS_DIR / "config.json"
+IMAGES_DIR = CALLIMACHUS_DIR / "imgs"
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 # ------------------------------------------
 # GLOBAL ML MODELS
@@ -143,7 +148,15 @@ async def lifespan(app: FastAPI):
     # 1. Load LangGraph Memory
     load_global_memory(in_memory_store)
 
-    # 2. Auto-Load Anti-API
+    # 2. Sweep orphaned temp files from previous sessions
+    logger.info("🧹 Sweeping orphaned temporary images...")
+    for temp_file in IMAGES_DIR.glob("temp_*"):
+        try:
+            temp_file.unlink()
+        except Exception as e:
+            logger.warning(f"Could not delete orphan {temp_file}: {e}")
+
+    # 3. Auto-Load Anti-API
     if CONFIG_FILE.exists():
         try:
             config = json.loads(CONFIG_FILE.read_text())
@@ -155,7 +168,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to read config: {e}")
     
-    # 3. Boot up Faster-Whisper (Using the 'base' or 'small' model for real-time speed)
+    # 4. Boot up Faster-Whisper (Using the 'base' or 'small' model for real-time speed)
     logger.info("🧠 Loading Faster-Whisper model...")
     cache_path = os.path.expanduser("~/.cache/huggingface/hub/models--Systran--faster-whisper-base/snapshots/")
     
@@ -184,6 +197,14 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Shutting down server. Flushing RAM memory to disk...")
     # Save cross-thread preferences from RAM to JSON
     save_global_memory(in_memory_store)
+
+    # Sweep orphaned temp files from previous sessions
+    logger.info("🧹 Sweeping orphaned temporary images...")
+    for temp_file in IMAGES_DIR.glob("temp_*"):
+        try:
+            temp_file.unlink()
+        except Exception as e:
+            logger.warning(f"Could not delete orphan {temp_file}: {e}")
     logger.info("✅ Server shutdown complete. Memory safely persisted.")
 
 app = FastAPI(title="Callimacus Agent API", lifespan=lifespan)
@@ -196,6 +217,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/imgs", StaticFiles(directory=str(IMAGES_DIR)), name="imgs")
 
 # ------------------------------------------
 # UTILS
@@ -350,27 +373,74 @@ def delete_document(doc_id: str):
         
     return {"ok": True, "message": "Document deleted"}
 
+@app.post("/api/media/upload")
+async def upload_image(file: UploadFile = File(...)):
+    """Allows BlockNote to upload images directly to the backend."""
+    ext = file.filename.split(".")[-1]
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = IMAGES_DIR / filename
+    with open(filepath, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"url": f"http://localhost:8000/imgs/{filename}"}
+
 # --- MEDIA ENDPOINTS ---
+# Update your extraction endpoint to use Session IDs
 @app.post("/api/media/extract")
 async def extract_pdf_text(file: UploadFile = File(...)):
     try:
         content = await file.read()
-        # Open the PDF directly from the uploaded bytes
         doc = fitz.open(stream=content, filetype="pdf")
+        
+        session_id = uuid.uuid4().hex # 💡 Unique session ID guarantees no collisions!
         
         pages_text = {}
         for i in range(len(doc)):
-            # Extract text and replace heavy line-breaks with spaces for the LLM
-            raw_text = doc[i].get_text("text").replace('\n', ' ')
+            page = doc[i]
+            raw_text = page.get_text("text").replace('\n', ' ')
+            
+            image_list = page.get_images(full=True)
+            for img_index, img in enumerate(image_list):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+
+                # Filter out small artifacts and point images
+                if base_image["width"] < 150 or base_image["height"] < 150:
+                    continue 
+
+                image_bytes = base_image["image"]
+                ext = base_image["ext"]
+                
+                # Save as a TEMP file
+                filename = f"temp_{session_id}_p{i+1}_i{img_index}.{ext}"
+                with open(IMAGES_DIR / filename, "wb") as f:
+                    f.write(image_bytes)
+                
+                raw_text += f"\n[IMAGE AVAILABLE: '{filename}']"
+                
             pages_text[str(i + 1)] = raw_text
             
         return {
             "status": "completed",
+            "session_id": session_id, # 💡 Send this back to React
             "total_pages": len(doc),
             "pages": pages_text
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+# CLEANUP: Wipes unused images when the user closes the PDF
+@app.delete("/api/media/cleanup/{session_id}")
+async def cleanup_media(session_id: str):
+    """Deletes all unused temporary images from a PDF extraction session."""
+    count = 0
+    # Find all images starting with this specific temp session ID
+    for file_path in IMAGES_DIR.glob(f"temp_{session_id}_*"):
+        try:
+            file_path.unlink()
+            count += 1
+        except Exception as e:
+            logger.error(f"Failed to delete temp image {file_path}: {e}")
+    return {"status": "cleaned", "deleted_files": count}
 
 # ------------------------------------------
 # AI AGENT ENDPOINTS (LANGGRAPH)
@@ -535,12 +605,18 @@ async def request_rewrite(payload: RequestPayload, request: Request):
     )
     par_data = doc.get_paragraph(payload.par_id)
     current_notes = par_data.get("notes", "")
+
+    current_ocr = par_data.get("ocr", "")
     
     rewrite_prompt = f"""The user requested a rewrite: '{payload.instruction}'. 
-    Use these notes: {current_notes}. 
+
+    [SOURCES]
+    OCR: {current_ocr}
+    Notes: {current_notes}
 
     CRITICAL INSTRUCTIONS:
-    1. You MUST apply rich Markdown formatting (bolding, bullet points) and use $$ LaTeX $$ for all math equations, even if the user asks for the text "exactly as the notes".
+    1. You MUST apply rich Markdown formatting (bolding, bullet points).
+    2. If the user asks for an image, you MUST use the 'extract_image' tool using the exact filename found in the OCR source.
     2. Please invoke 'create_paragraph' using exactly doc_id: '{payload.doc_id}' and par_id: '{payload.par_id}'."""
     # 4. Invoke the agend and update
     await agent.ainvoke({"messages": [HumanMessage(content=rewrite_prompt)]}, config)
