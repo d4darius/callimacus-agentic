@@ -513,6 +513,23 @@ function Document({
 
     syncingHeadingRef.current = headingId; // Lock ONLY this specific heading from tagging this as a draft!
 
+    // --- ⚓ SCROLL ANCHOR (PRE-INJECTION) ---
+    // Find exactly where the user is currently looking/typing before we change the DOM
+    let activeBlockId: string | null = null;
+    let activeBlockOldTop = 0;
+    try {
+      const cursor = editor.getTextCursorPosition();
+      if (cursor && cursor.block) {
+        activeBlockId = cursor.block.id;
+        const el = document.querySelector(`[data-id="${activeBlockId}"]`);
+        if (el) {
+          activeBlockOldTop = el.getBoundingClientRect().top;
+        }
+      }
+    } catch (e) {
+      // Cursor might not be actively in the editor, which is fine.
+    }
+
     try {
       // 1. Let BlockNote natively parse the AI's Markdown
       const newBlocks = await parseMarkdownWithMath(editor, markdown);
@@ -534,7 +551,7 @@ function Document({
       if (startIndex !== -1) {
         let blocksToInsert = newBlocks;
 
-        // 3. Keep the original heading ID intact! Just update its text.
+        // 3. Keep the original heading ID intact
         if (newBlocks.length > 0 && newBlocks[0].type === "heading") {
           editor.updateBlock(headingId, { content: newBlocks[0].content });
           blocksToInsert = newBlocks.slice(1);
@@ -566,6 +583,20 @@ function Document({
       setTimeout(() => {
         if (syncingHeadingRef.current === headingId) {
           syncingHeadingRef.current = null;
+        }
+        // --- ⚓ SCROLL ANCHOR (POST-INJECTION) ---
+        // Instantly counter-act the layout shift so the user doesn't lose focus
+        if (activeBlockId) {
+          const el = document.querySelector(`[data-id="${activeBlockId}"]`);
+          if (el) {
+            const newTop = el.getBoundingClientRect().top;
+            const scrollDiff = newTop - activeBlockOldTop;
+
+            // If the active block was pushed down (>1px difference), silently shift the window!
+            if (Math.abs(scrollDiff) > 1) {
+              window.scrollBy(0, scrollDiff);
+            }
+          }
         }
       }, 100);
     }

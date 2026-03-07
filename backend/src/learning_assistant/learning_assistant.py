@@ -237,7 +237,9 @@ async def extract_image(doc_id: str, par_id: str, image_filename: Any):
     
     image_markdown = f"![Visual Reference](http://localhost:8000/imgs/{perm_filename})"
     instruction = (
-        f"CRITICAL REQUIREMENT: You MUST include this exact markdown string to render the extracted image: {image_markdown}\n"
+        "CRITICAL REQUIREMENT:\n"
+        "If there are NO [IMAGE AVAILABLE] tags in the OCR, or if the tool fails, you MUST NOT hallucinate image markdown (e.g., do not output `![alt](url)`). Simply omit the image entirely."
+        f"If there is an image, you MUST include this exact markdown string to render the extracted image: {image_markdown}"
         "Do NOT simply append it to the very end of the text. You MUST place this markdown block wherever it is most contextually relevant in your explanation (e.g., immediately following the introduction of the concept it illustrates). "
         "Place it on its own dedicated blank line to ensure it renders beautifully."
     )
