@@ -148,13 +148,47 @@ async def lifespan(app: FastAPI):
     # 1. Load LangGraph Memory
     load_global_memory(in_memory_store)
 
-    # 2. Sweep orphaned temp files from previous sessions
-    logger.info("🧹 Sweeping orphaned temporary images...")
-    for temp_file in IMAGES_DIR.glob("temp_*"):
-        try:
-            temp_file.unlink()
-        except Exception as e:
-            logger.warning(f"Could not delete orphan {temp_file}: {e}")
+    # 2. GARBAGE COLLECTION: Sweep orphaned temp files and deleted img files from previous sessions
+    logger.info("🧹🗑️ Running Garbage Collection on images...")
+    try:
+        used_images = set()
+        
+        # A. First, build the map of active images from the notebooks
+        for doc_file in Path(CONTEXT_DIR).glob("*.json"):
+            try:
+                content = doc_file.read_text()
+                # Matches any string that looks like our image files (e.g., img_123.png)
+                import re
+                found = re.findall(r"(img_[a-zA-Z0-9_]+\.[a-zA-Z0-9]+)", content)
+                used_images.update(found)
+            except Exception:
+                continue
+
+        # B. Single pass through the images directory
+        for file_path in IMAGES_DIR.iterdir():
+            if not file_path.is_file():
+                continue
+                
+            filename = file_path.name
+            
+            # Condition 1: It's a leftover temporary file from a crash
+            if filename.startswith("temp_"):
+                try:
+                    file_path.unlink()
+                    # logger.debug(f"🧹 Swept temp orphan: {filename}") # Optional debug
+                except Exception as e:
+                    logger.warning(f"Could not delete temp orphan {filename}: {e}")
+                    
+            # Condition 2: It's an uploaded/extracted image no longer in any notebook
+            elif filename.startswith("img_") and filename not in used_images:
+                try:
+                    file_path.unlink()
+                    logger.info(f"✅ GC Deleted unused image: {filename}")
+                except Exception as e:
+                    logger.warning(f"Could not delete unused image {filename}: {e}")
+
+    except Exception as e:
+         logger.warning(f"Could not run garbage collection: {e}")
 
     # 3. Auto-Load Anti-API
     if CONFIG_FILE.exists():
@@ -198,14 +232,47 @@ async def lifespan(app: FastAPI):
     # Save cross-thread preferences from RAM to JSON
     save_global_memory(in_memory_store)
 
-    # Sweep orphaned temp files from previous sessions
-    logger.info("🧹 Sweeping orphaned temporary images...")
-    for temp_file in IMAGES_DIR.glob("temp_*"):
-        try:
-            temp_file.unlink()
-        except Exception as e:
-            logger.warning(f"Could not delete orphan {temp_file}: {e}")
-    logger.info("✅ Server shutdown complete. Memory safely persisted.")
+    # GARBAGE COLLECTION: Sweep orphaned temp files and deleted img files from previous sessions
+    logger.info("🧹🗑️ Running Garbage Collection on images...")
+    try:
+        used_images = set()
+        
+        # A. First, build the map of active images from the notebooks
+        for doc_file in Path(CONTEXT_DIR).glob("*.json"):
+            try:
+                content = doc_file.read_text()
+                # Matches any string that looks like our image files (e.g., img_123.png)
+                import re
+                found = re.findall(r"(img_[a-zA-Z0-9_]+\.[a-zA-Z0-9]+)", content)
+                used_images.update(found)
+            except Exception:
+                continue
+
+        # B. Single pass through the images directory
+        for file_path in IMAGES_DIR.iterdir():
+            if not file_path.is_file():
+                continue
+                
+            filename = file_path.name
+            
+            # Condition 1: It's a leftover temporary file from a crash
+            if filename.startswith("temp_"):
+                try:
+                    file_path.unlink()
+                    # logger.debug(f"🧹 Swept temp orphan: {filename}") # Optional debug
+                except Exception as e:
+                    logger.warning(f"Could not delete temp orphan {filename}: {e}")
+                    
+            # Condition 2: It's an uploaded/extracted image no longer in any notebook
+            elif filename.startswith("img_") and filename not in used_images:
+                try:
+                    file_path.unlink()
+                    logger.info(f"✅ GC Deleted unused image: {filename}")
+                except Exception as e:
+                    logger.warning(f"Could not delete unused image {filename}: {e}")
+    
+    except Exception as e:
+         logger.warning(f"Could not run garbage collection: {e}")
 
 app = FastAPI(title="Callimacus Agent API", lifespan=lifespan)
 
@@ -377,7 +444,7 @@ def delete_document(doc_id: str):
 async def upload_image(file: UploadFile = File(...)):
     """Allows BlockNote to upload images directly to the backend."""
     ext = file.filename.split(".")[-1]
-    filename = f"{uuid.uuid4().hex}.{ext}"
+    filename = f"img_{uuid.uuid4().hex}.{ext}"
     filepath = IMAGES_DIR / filename
     with open(filepath, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
