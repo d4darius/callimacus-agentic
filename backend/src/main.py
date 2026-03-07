@@ -154,7 +154,7 @@ async def lifespan(app: FastAPI):
         used_images = set()
         
         # A. First, build the map of active images from the notebooks
-        for doc_file in Path(CONTEXT_DIR).glob("*.json"):
+        for doc_file in Path(DOCS_DIR).glob("*.json"):
             try:
                 content = doc_file.read_text()
                 # Matches any string that looks like our image files (e.g., img_123.png)
@@ -238,7 +238,7 @@ async def lifespan(app: FastAPI):
         used_images = set()
         
         # A. First, build the map of active images from the notebooks
-        for doc_file in Path(CONTEXT_DIR).glob("*.json"):
+        for doc_file in Path(DOCS_DIR).glob("*.json"):
             try:
                 content = doc_file.read_text()
                 # Matches any string that looks like our image files (e.g., img_123.png)
